@@ -26,7 +26,9 @@ RUN arch=$(dpkg --print-architecture | sed 's/amd64/x64/') \
 	&& rm -rf /var/lib/apt/lists/* \
 	&& chown -R runner:runner /opt/actions-runner
 
-COPY --chmod=0755 entrypoint.sh /usr/local/bin/jitrunner-entrypoint
+# Plain COPY and chmod: the legacy builder (Debian and Ubuntu docker.io without buildx) has no COPY --chmod.
+COPY entrypoint.sh /usr/local/bin/jitrunner-entrypoint
+RUN chmod 0755 /usr/local/bin/jitrunner-entrypoint
 USER runner
 # JIT_CONFIG comes from the agent: a one-time registration for one runner that runs one job and exits.
 ENTRYPOINT ["/usr/local/bin/jitrunner-entrypoint"]

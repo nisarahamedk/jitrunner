@@ -5,18 +5,24 @@
  * runners). Shared by the boot script (stock Ubuntu image) and the bake script (snapshot image).
  */
 export const INSTALL_RUNNER = String.raw`
+fetch() {
+	curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 "$@"
+}
+
 install_runner() {
 	export DEBIAN_FRONTEND=noninteractive
 	id runner >/dev/null 2>&1 || useradd --create-home --shell /bin/bash runner
 	echo 'runner ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/runner
 	chmod 0440 /etc/sudoers.d/runner
 	[ -x /opt/actions-runner/run.sh ] && return 0
-	apt-get update -q
-	apt-get install -yq curl git jq unzip zstd build-essential ca-certificates
+	apt-get -o Acquire::Retries=5 update -q
+	apt-get -o Acquire::Retries=5 install -yq curl git jq unzip zstd build-essential ca-certificates
 	case "$(uname -m)" in aarch64) arch=arm64 ;; *) arch=x64 ;; esac
-	version=$(curl -fsSL https://api.github.com/repos/actions/runner/releases/latest | jq -r .tag_name | sed 's/^v//')
+	# The release page redirects to .../tag/v<version>. Unlike api.github.com, it has no 60-an-hour limit per IP,
+	# and Hetzner hands the same addresses out again and again.
+	version=$(fetch -o /dev/null -w '%{url_effective}' https://github.com/actions/runner/releases/latest | sed 's#.*/v##')
 	mkdir -p /opt/actions-runner
-	curl -fsSL "https://github.com/actions/runner/releases/download/v$version/actions-runner-linux-$arch-$version.tar.gz" \
+	fetch "https://github.com/actions/runner/releases/download/v$version/actions-runner-linux-$arch-$version.tar.gz" \
 		| tar -xz -C /opt/actions-runner
 	/opt/actions-runner/bin/installdependencies.sh
 	chown -R runner:runner /opt/actions-runner
@@ -47,7 +53,10 @@ watch_idle() {
  */
 export function bootScript(jitConfig: string, idleSeconds: number): string {
 	return `#!/bin/bash
-set -euo pipefail
+set -Eeuo pipefail
+# A failed setup powers off at once, so jitrunner deletes the server and makes a new one within a minute or two,
+# instead of waiting BOOT_GRACE_SECONDS for a runner that will never connect.
+trap 'echo "jitrunner: setup failed"; poweroff' ERR
 ${INSTALL_RUNNER}
 ${IDLE_WATCHDOG}
 install_runner

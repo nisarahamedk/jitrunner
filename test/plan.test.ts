@@ -107,6 +107,10 @@ describe('cleanup', () => {
 		expect(cleanup(config, now, [server(30000)], [runner({})])).toHaveLength(1);
 	});
 
+	it('deletes a powered-off server at once, even while booting', () => {
+		expect(cleanup(config, now, [{ ...server(60), status: 'off' }], [])).toMatchObject([{ kind: 'delete' }]);
+	});
+
 	it('never touches servers without the prefix', () => {
 		expect(cleanup(config, now, [{ id: 1, name: 'web-1', created: ago(99999) }], [])).toEqual([]);
 	});
@@ -135,17 +139,17 @@ describe('agents', () => {
 
 	it('offers an agent the oldest jobs it can run, up to its free slots', () => {
 		const jobs = [job(3, 10), job(1, 30), job(2, 20)];
-		expect(claimable(withAgents, jobs, [], [], agentLabels, 2).map((queued) => queued.id)).toEqual([1, 2]);
+		expect(claimable(withAgents, jobs, [], agentLabels, 2).map((queued) => queued.id)).toEqual([1, 2]);
 	});
 
 	it('never offers an agent a job asking for a label it lacks, such as ephemeral', () => {
 		const jobs = [job(1, 30, ['self-hosted', 'jit', 'ephemeral'])];
-		expect(claimable(withAgents, jobs, [], [], agentLabels, 1)).toEqual([]);
+		expect(claimable(withAgents, jobs, [], agentLabels, 1)).toEqual([]);
 	});
 
-	it('skips jobs a server or another agent already has', () => {
-		const servers: Server[] = [{ id: 1, name: 'jit-1', created: ago(5) }];
-		expect(claimable(withAgents, [job(1, 30), job(2, 30)], servers, [claimedBy(2)], agentLabels, 2)).toEqual([]);
+	it('skips jobs another agent claimed, but not jobs a server was made for', () => {
+		const claimed = claimable(withAgents, [job(1, 30), job(2, 30)], [claimedBy(2)], agentLabels, 2);
+		expect(claimed.map((queued) => queued.id)).toEqual([1]);
 	});
 
 	it('leaves a young job to live agents before making a server', () => {

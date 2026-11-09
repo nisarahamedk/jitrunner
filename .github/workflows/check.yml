@@ -20,7 +20,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
-      - run: node --check agent/agent.mjs && bash -n agent/install.sh
+      - run: node --check agent/agent.mjs && bash -n agent/install.sh && bash -n runner/entrypoint.sh
       - run: docker build -t jitrunner-runner runner/
       - name: The job image runs the GitHub runner
         run: docker run --rm --entrypoint ./run.sh jitrunner-runner --version

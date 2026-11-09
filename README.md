@@ -132,7 +132,7 @@ Vars in `wrangler.jsonc`:
 | `MAX_SERVERS`         | `3`              | Never more JIT servers than this at once; jobs past it wait                      |
 | `GRACE_SECONDS`       | `30`             | How long a job waits for one of your free machines before getting a server       |
 | `BOOT_GRACE_SECONDS`  | `600`            | How long a new server may take to register its runner                            |
-| `IDLE_SECONDS`        | `900`            | A registered runner idle this long has its server deleted                        |
+| `IDLE_SECONDS`        | `300`            | A runner with no job after this long gives up and its server is deleted          |
 | `MAX_AGE_SECONDS`     | `21600`          | Every server is deleted at this age, busy or not (GitHub's own job limit is 6 h) |
 | `AGENT_GRACE_SECONDS` | `20`             | While an agent is up, how long a job waits for it (at most 25)                   |
 | `ALLOW_PUBLIC_REPOS`  | `false`          | Leave off unless you know what fork pull requests can do on self-hosted runners  |

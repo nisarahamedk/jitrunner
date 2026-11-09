@@ -51,11 +51,11 @@ export class Hetzner {
 		const servers: Server[] = [];
 		for (let page = 1; ; page += 1) {
 			const { servers: batch, meta } = await this.call<{
-				servers: { id: number; name: string; created: string }[];
+				servers: { id: number; name: string; created: string; status: string }[];
 				meta: { pagination: { next_page: number | null } };
 			}>('GET', `/servers?label_selector=${encodeURIComponent(this.selector)}&per_page=50&page=${page}`);
 			for (const server of batch)
-				servers.push({ id: server.id, name: server.name, created: Date.parse(server.created) });
+				servers.push({ id: server.id, name: server.name, created: Date.parse(server.created), status: server.status });
 			if (!meta.pagination.next_page) return servers;
 		}
 	}

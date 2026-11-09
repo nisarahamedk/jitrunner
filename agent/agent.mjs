@@ -18,6 +18,7 @@
 //   JITRUNNER_DOCKER_ARGS    extra `docker run` arguments, e.g. "--cpus 2 --memory 6g"
 //   JITRUNNER_POLL_SECONDS   default 5
 //   JITRUNNER_MAX_JOB_SECONDS  a container is stopped at this age (default 21600, GitHub's own job limit)
+//   JITRUNNER_IDLE_SECONDS   a container whose job went to another runner gives up after this long (default 300)
 import { execFile } from 'node:child_process';
 import { hostname } from 'node:os';
 import { promisify } from 'node:util';
@@ -39,6 +40,7 @@ const image = env.JITRUNNER_IMAGE || 'jitrunner-runner';
 const dockerArgs = (env.JITRUNNER_DOCKER_ARGS || '').split(/\s+/).filter(Boolean);
 const pollMs = Number(env.JITRUNNER_POLL_SECONDS || 5) * 1000;
 const maxJobMs = Number(env.JITRUNNER_MAX_JOB_SECONDS || 21600) * 1000;
+const idleSeconds = Number(env.JITRUNNER_IDLE_SECONDS || 300);
 const tag = `jitrunner.agent=${agent}`;
 
 if (labels.some((label) => label.toLowerCase() === 'ephemeral')) {
@@ -93,6 +95,8 @@ async function start({ runner, jitConfig, repo, jobId }) {
 			'2g',
 			'--env',
 			'JIT_CONFIG',
+			'--env',
+			`JITRUNNER_IDLE_SECONDS=${idleSeconds}`,
 			...dockerArgs,
 			image,
 		],

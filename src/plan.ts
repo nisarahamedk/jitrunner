@@ -8,6 +8,8 @@ export interface Server {
 	id: number;
 	name: string;
 	created: number; // ms since epoch
+	/** Hetzner's status; "off" means the runner exited (job done, or nothing to do) and powered the server off. */
+	status?: string;
 }
 
 export interface Runner {
@@ -90,6 +92,7 @@ export function cleanup(config: Config, now: number, servers: Server[], runners:
 			actions.push({ kind: 'delete', serverId: server.id, name: server.name, runnerId: runner?.id, reason });
 		};
 		if (age > config.maxAgeSeconds) remove('older than MAX_AGE_SECONDS');
+		else if (server.status === 'off') remove('powered off: its runner exited');
 		else if (age <= config.bootGraceSeconds) continue;
 		// An ephemeral runner removes itself when its job ends, so no runner after boot means done (or never started).
 		else if (!runner) remove('no runner: job finished or the runner never registered');
@@ -143,18 +146,20 @@ export function provision(
 
 /**
  * Jobs an agent may claim: they asked for jitrunner, every label they ask for is one the agent has (so a job that
- * asks for `ephemeral` never reaches an agent that lacks it), and no server or other agent has them yet.
+ * asks for `ephemeral` never reaches an agent that lacks it), and no other agent has claimed them.
+ *
+ * A server made for a job does not hold that job: GitHub hands a queued job to any idle runner with the right
+ * labels, so the server's runner may run another one. Agents therefore claim regardless, and a runner left without
+ * work exits on its own after IDLE_SECONDS (cloud-init.ts, runner/entrypoint.sh).
  */
 export function claimable(
 	config: Config,
 	jobs: QueuedJob[],
-	servers: Server[],
 	runners: Runner[],
 	agentLabels: string[],
 	slots: number,
 ): QueuedJob[] {
 	const have = new Set(lower(agentLabels));
-	const serverNames = new Set(servers.map((server) => server.name));
 	const runnerNames = new Set(runners.map((runner) => runner.name));
 	return [...jobs]
 		.sort((a, b) => a.created - b.created)
@@ -162,7 +167,6 @@ export function claimable(
 			(job) =>
 				wantsJit(config, job.labels) &&
 				lower(job.labels).every((label) => have.has(label)) &&
-				!serverNames.has(serverName(config, job.id)) &&
 				!runnerNames.has(agentRunnerName(config, job.id)),
 		)
 		.slice(0, Math.max(0, slots));

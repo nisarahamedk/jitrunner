@@ -26,6 +26,7 @@ RUN arch=$(dpkg --print-architecture | sed 's/amd64/x64/') \
 	&& rm -rf /var/lib/apt/lists/* \
 	&& chown -R runner:runner /opt/actions-runner
 
+COPY --chmod=0755 entrypoint.sh /usr/local/bin/jitrunner-entrypoint
 USER runner
 # JIT_CONFIG comes from the agent: a one-time registration for one runner that runs one job and exits.
-ENTRYPOINT ["/bin/bash", "-c", "exec ./run.sh --jitconfig \"$JIT_CONFIG\""]
+ENTRYPOINT ["/usr/local/bin/jitrunner-entrypoint"]

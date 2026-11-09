@@ -18,7 +18,7 @@
 		"MAX_SERVERS": "3",
 		"GRACE_SECONDS": "30",
 		"BOOT_GRACE_SECONDS": "600",
-		"IDLE_SECONDS": "900",
+		"IDLE_SECONDS": "300",
 		"MAX_AGE_SECONDS": "21600",
 		"ALLOW_PUBLIC_REPOS": "false",
 		// With AGENT_TOKEN set: a queued job waits this long for one of your agents before getting a server.

@@ -13,6 +13,7 @@ import {
 	archOf,
 	claimable,
 	cleanup,
+	isAgentName,
 	isJitName,
 	provision,
 	runnerLabels,
@@ -52,7 +53,7 @@ async function create(
 		serverType: config.serverType,
 		locations: config.locations,
 		image: config.image,
-		userData: bootScript(jitConfig),
+		userData: bootScript(jitConfig, config.idleSeconds),
 		sshKey: await hetzner.lockoutKey(),
 	});
 	console.log(
@@ -145,11 +146,10 @@ async function markAlive(env: Env, agent: string): Promise<void> {
 async function claim(env: Env, request: ClaimRequest): Promise<Claim[]> {
 	const config = readConfig(env);
 	await markAlive(env, request.agent);
-	const servers = await new Hetzner(env.HCLOUD_TOKEN, config.prefix).servers();
 	const claims: Claim[] = [];
 	for (const { installation, repo, runners } of await openRepos(env, config)) {
 		const jobs = await installation.queuedJobs(repo);
-		for (const job of claimable(config, jobs, servers, runners, request.labels, request.slots - claims.length)) {
+		for (const job of claimable(config, jobs, runners, request.labels, request.slots - claims.length)) {
 			const runner = agentRunnerName(config, job.id);
 			try {
 				const jitConfig = await installation.jitConfig(repo, runner, runnerLabels(job.labels, request.arch));
@@ -198,6 +198,15 @@ async function reconcile(env: Env): Promise<void> {
 
 	for (const { installation, repo, runners } of repos) {
 		const jobs = await installation.queuedJobs(repo);
+		// An agent runner that is offline while its job is no longer queued either finished, or its container gave up
+		// waiting because another runner took the job. Either way GitHub keeps listing it until it is removed.
+		const queuedIds = new Set(jobs.map((job) => job.id));
+		for (const runner of runners) {
+			const jobId = isAgentName(config, runner.name) ? Number(runner.name.split('-').pop()) : undefined;
+			if (jobId !== undefined && runner.status === 'offline' && !queuedIds.has(jobId)) {
+				await installation.deleteRunner(repo, runner.id);
+			}
+		}
 		for (const action of provision(config, now, jobs, servers, runners, archOf(config.serverType), alive)) {
 			if (action.kind !== 'create') continue;
 			await create(config, hetzner, installation, repo, action);

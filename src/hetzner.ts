@@ -6,20 +6,24 @@ import type { Server } from './plan.ts';
 const API = 'https://api.hetzner.cloud/v1';
 
 export class HetznerError extends Error {
-	constructor(
-		readonly status: number,
-		readonly code: string,
-		message: string,
-	) {
+	readonly status: number;
+	readonly code: string;
+
+	constructor(status: number, code: string, message: string) {
 		super(message);
+		this.status = status;
+		this.code = code;
 	}
 }
 
 export class Hetzner {
-	constructor(
-		private readonly token: string,
-		private readonly prefix: string,
-	) {}
+	private readonly token: string;
+	private readonly prefix: string;
+
+	constructor(token: string, prefix: string) {
+		this.token = token;
+		this.prefix = prefix;
+	}
 
 	private async call<T>(method: string, path: string, body?: unknown): Promise<T> {
 		const response = await fetch(`${API}${path}`, {

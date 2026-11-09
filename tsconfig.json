@@ -10,6 +10,8 @@
 		"noUncheckedIndexedAccess": true,
 		"allowImportingTsExtensions": true,
 		"isolatedModules": true,
+		// Scripts run with plain `node`, which only strips types.
+		"erasableSyntaxOnly": true,
 		"skipLibCheck": true,
 		"noEmit": true,
 		"types": ["@cloudflare/workers-types", "node"]

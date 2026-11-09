@@ -110,11 +110,11 @@ export async function verifyWebhook(secret: string, body: string, signature: str
 }
 
 export class GitHubError extends Error {
-	constructor(
-		readonly status: number,
-		message: string,
-	) {
+	readonly status: number;
+
+	constructor(status: number, message: string) {
 		super(message);
+		this.status = status;
 	}
 }
 
@@ -144,7 +144,11 @@ export interface Repo {
 
 /** One installation's view of GitHub: everything jitrunner does in the repos it was installed on. */
 export class Installation {
-	private constructor(private readonly token: string) {}
+	private readonly token: string;
+
+	private constructor(token: string) {
+		this.token = token;
+	}
 
 	// Installation tokens last an hour; agents poll every few seconds, so reuse one for up to 50 minutes.
 	private static readonly tokens = new Map<number, { token: string; until: number }>();

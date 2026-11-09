@@ -1,0 +1,27 @@
+name: Check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - run: node --check agent/agent.mjs && bash -n agent/install.sh && bash -n runner/entrypoint.sh
+      # The legacy builder, as on Ubuntu's docker.io package that agent/install.sh installs.
+      - run: DOCKER_BUILDKIT=0 docker build -t jitrunner-runner runner/
+      - name: The job image runs the GitHub runner
+        run: docker run --rm --entrypoint ./run.sh jitrunner-runner --version

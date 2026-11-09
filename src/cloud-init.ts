@@ -28,15 +28,31 @@ function shellQuote(value: string): string {
 }
 
 /**
- * Boots one ephemeral runner for one job, then powers off. The JIT config is single-use and only valid for this
- * runner name; jitrunner deletes the server once GitHub reports the job done (or the cron sees no runner).
+ * Gives up when no job has started after IDLE_SECONDS: GitHub may hand the job this runner was made for to another
+ * runner, and then this one would wait forever. The runner writes _diag/Worker_*.log when a job starts.
  */
-export function bootScript(jitConfig: string): string {
+export const IDLE_WATCHDOG = String.raw`
+watch_idle() {
+	sleep "$1"
+	if ! compgen -G "$2/_diag/Worker_*" >/dev/null; then
+		echo "jitrunner: no job after $1s, giving up"
+		pkill -TERM -f Runner.Listener || true
+	fi
+}
+`;
+
+/**
+ * Boots one ephemeral runner for one job, then powers off; jitrunner deletes powered-off servers. The JIT config is
+ * single-use and only valid for this runner name.
+ */
+export function bootScript(jitConfig: string, idleSeconds: number): string {
 	return `#!/bin/bash
 set -euo pipefail
 ${INSTALL_RUNNER}
+${IDLE_WATCHDOG}
 install_runner
 cd /opt/actions-runner
+watch_idle ${idleSeconds} /opt/actions-runner &
 sudo -u runner -H ./run.sh --jitconfig ${shellQuote(jitConfig)} || true
 poweroff
 `;

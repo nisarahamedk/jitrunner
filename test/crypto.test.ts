@@ -52,7 +52,7 @@ describe('lockoutPublicKey', () => {
 
 describe('bootScript', () => {
 	it('quotes the JIT config for the shell', () => {
-		const script = bootScript("abc'def");
+		const script = bootScript("abc'def", 300);
 		expect(script).toContain(`--jitconfig 'abc'\\''def'`);
 		expect(script.startsWith('#!/bin/bash\n')).toBe(true);
 	});

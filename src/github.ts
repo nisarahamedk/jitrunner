@@ -82,6 +82,17 @@ export async function appJwt(appId: string, privateKeyPem: string, now = Date.no
 	return `${header}.${payload}.${base64url(signature)}`;
 }
 
+/** Compares two strings without leaking, through timing, how much of them matches. */
+export function safeEqual(a: string, b: string): boolean {
+	const left = encoder.encode(a);
+	const right = encoder.encode(b);
+	let diff = left.length ^ right.length;
+	for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
+		diff |= (left[index] ?? 0) ^ (right[index] ?? 0);
+	}
+	return diff === 0;
+}
+
 /** Checks X-Hub-Signature-256 against the webhook secret, in constant time. */
 export async function verifyWebhook(secret: string, body: string, signature: string | null): Promise<boolean> {
 	if (!signature?.startsWith('sha256=')) return false;
@@ -135,9 +146,15 @@ export interface Repo {
 export class Installation {
 	private constructor(private readonly token: string) {}
 
+	// Installation tokens last an hour; agents poll every few seconds, so reuse one for up to 50 minutes.
+	private static readonly tokens = new Map<number, { token: string; until: number }>();
+
 	static async open(appId: string, privateKeyPem: string, installationId: number): Promise<Installation> {
+		const cached = Installation.tokens.get(installationId);
+		if (cached && cached.until > Date.now()) return new Installation(cached.token);
 		const jwt = await appJwt(appId, privateKeyPem);
 		const { token } = await call<{ token: string }>(jwt, 'POST', `/app/installations/${installationId}/access_tokens`);
+		Installation.tokens.set(installationId, { token, until: Date.now() + 50 * 60_000 });
 		return new Installation(token);
 	}
 
@@ -199,6 +216,15 @@ export class Installation {
 			{ name, runner_group_id: 1, labels, work_folder: '_work' },
 		);
 		return config;
+	}
+
+	async jobStatus(repo: Repo, jobId: number): Promise<string> {
+		const { status } = await call<{ status: string }>(
+			this.token,
+			'GET',
+			`/repos/${repo.owner}/${repo.name}/actions/jobs/${jobId}`,
+		);
+		return status;
 	}
 
 	async deleteRunner(repo: Repo, runnerId: number): Promise<void> {

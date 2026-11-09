@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { Config } from '../src/config.ts';
-import { archOf, cleanup, provision, runnerLabels, type Runner, type Server } from '../src/plan.ts';
+import { archOf, claimable, cleanup, provision, runnerLabels, type Runner, type Server } from '../src/plan.ts';
 
 const config: Config = {
 	label: 'jit',
 	prefix: 'jit',
 	serverType: 'cx23',
-	location: 'fsn1',
+	locations: ['fsn1'],
 	image: 'ubuntu-24.04',
 	maxServers: 2,
 	graceSeconds: 30,
@@ -14,7 +14,10 @@ const config: Config = {
 	idleSeconds: 900,
 	maxAgeSeconds: 21600,
 	allowPublicRepos: false,
+	agentGraceSeconds: 20,
+	agentToken: undefined,
 };
+const withAgents: Config = { ...config, agentToken: 'token' };
 const now = Date.parse('2026-11-09T12:00:00Z');
 const ago = (seconds: number) => now - seconds * 1000;
 const laptop = (busy = false): Runner => ({
@@ -104,6 +107,10 @@ describe('cleanup', () => {
 		expect(cleanup(config, now, [server(30000)], [runner({})])).toHaveLength(1);
 	});
 
+	it('deletes a powered-off server at once, even while booting', () => {
+		expect(cleanup(config, now, [{ ...server(60), status: 'off' }], [])).toMatchObject([{ kind: 'delete' }]);
+	});
+
 	it('never touches servers without the prefix', () => {
 		expect(cleanup(config, now, [{ id: 1, name: 'web-1', created: ago(99999) }], [])).toEqual([]);
 	});
@@ -117,5 +124,46 @@ describe('labels', () => {
 	it('knows Hetzner Arm types', () => {
 		expect(archOf('cax11')).toBe('ARM64');
 		expect(archOf('cx23')).toBe('X64');
+	});
+});
+
+describe('agents', () => {
+	const agentLabels = ['self-hosted', 'Linux', 'X64', 'jit'];
+	const claimedBy = (jobId: number): Runner => ({
+		id: 5,
+		name: `agent-jit-${jobId}`,
+		status: 'offline',
+		busy: false,
+		labels: [],
+	});
+
+	it('offers an agent the oldest jobs it can run, up to its free slots', () => {
+		const jobs = [job(3, 10), job(1, 30), job(2, 20)];
+		expect(claimable(withAgents, jobs, [], agentLabels, 2).map((queued) => queued.id)).toEqual([1, 2]);
+	});
+
+	it('never offers an agent a job asking for a label it lacks, such as ephemeral', () => {
+		const jobs = [job(1, 30, ['self-hosted', 'jit', 'ephemeral'])];
+		expect(claimable(withAgents, jobs, [], agentLabels, 1)).toEqual([]);
+	});
+
+	it('skips jobs another agent claimed, but not jobs a server was made for', () => {
+		const claimed = claimable(withAgents, [job(1, 30), job(2, 30)], [claimedBy(2)], agentLabels, 2);
+		expect(claimed.map((queued) => queued.id)).toEqual([1]);
+	});
+
+	it('leaves a young job to live agents before making a server', () => {
+		expect(provision(withAgents, now, [job(4, 10)], [], [], 'X64', true)).toEqual([]);
+		expect(provision(withAgents, now, [job(4, 21)], [], [], 'X64', true)).toHaveLength(1);
+		expect(provision(withAgents, now, [job(4, 1)], [], [], 'X64', false)).toHaveLength(1);
+	});
+
+	it('makes no server for a job an agent claimed', () => {
+		expect(provision(withAgents, now, [job(4, 60)], [], [claimedBy(4)], 'X64')).toEqual([]);
+	});
+
+	it('does not count an agent runner as one of your free machines', () => {
+		const idleAgentRunner = { ...claimedBy(9), status: 'online' as const, labels: agentLabels };
+		expect(provision(config, now, [job(7, 0)], [], [idleAgentRunner], 'X64')).toHaveLength(1);
 	});
 });

@@ -51,29 +51,49 @@ export class Hetzner {
 		const servers: Server[] = [];
 		for (let page = 1; ; page += 1) {
 			const { servers: batch, meta } = await this.call<{
-				servers: { id: number; name: string; created: string }[];
+				servers: { id: number; name: string; created: string; status: string }[];
 				meta: { pagination: { next_page: number | null } };
 			}>('GET', `/servers?label_selector=${encodeURIComponent(this.selector)}&per_page=50&page=${page}`);
 			for (const server of batch)
-				servers.push({ id: server.id, name: server.name, created: Date.parse(server.created) });
+				servers.push({ id: server.id, name: server.name, created: Date.parse(server.created), status: server.status });
 			if (!meta.pagination.next_page) return servers;
 		}
 	}
 
-	/** Creates the server, or does nothing when one with this name already exists (a webhook and the cron raced). */
+	/**
+	 * Creates the server in the first location that has room, or does nothing when one with this name already exists
+	 * (a webhook and the cron raced). Hetzner answers 412 "error during placement" when a location is out of a type.
+	 */
 	async create(options: {
 		name: string;
 		serverType: string;
-		location: string;
+		locations: string[];
 		image: string;
 		userData: string;
 		sshKey: string;
-	}): Promise<'created' | 'exists'> {
+	}): Promise<'exists' | { created: string }> {
+		let lastError: unknown;
+		for (const location of options.locations) {
+			try {
+				if ((await this.createIn(location, options)) === 'exists') return 'exists';
+				return { created: location };
+			} catch (error) {
+				if (!(error instanceof HetznerError) || error.status !== 412) throw error;
+				lastError = error;
+			}
+		}
+		throw lastError;
+	}
+
+	private async createIn(
+		location: string,
+		options: { name: string; serverType: string; image: string; userData: string; sshKey: string },
+	): Promise<'created' | 'exists'> {
 		try {
 			await this.call('POST', '/servers', {
 				name: options.name,
 				server_type: options.serverType,
-				location: options.location,
+				location,
 				image: options.image,
 				user_data: options.userData,
 				ssh_keys: [options.sshKey],

@@ -80,34 +80,62 @@ HCLOUD_TOKEN=... pnpm build-image --extra my-setup.sh
 Put the snapshot id it prints in `IMAGE` and deploy again. Snapshots cost about $0.02 per GB a month. Rebuild now and
 then: the runner updates itself on boot when the baked one is old, which works but is slower.
 
-### Adding your own machines
+### Your own machines: the agent
 
-Register any Linux, macOS or Windows machine as an ordinary
+The agent (`agent/agent.mjs`) lets a machine you own, such as an old laptop or a box under the desk, take jobs
+before jitrunner pays for a server. Every few seconds it tells the Worker how many free slots it has. The Worker
+hands it one-time runner configs for queued jobs it can run, and the agent runs each job in a **fresh Docker
+container** (`runner/Dockerfile`) that is removed afterwards. Nothing listens on your machine, and no GitHub or
+Hetzner token is ever on it.
+
+While an agent is up, a queued job waits `AGENT_GRACE_SECONDS` (default 20) for it before getting a server. A busy
+or switched-off agent stops asking for work, and jobs stop waiting for it within five minutes.
+
+1. Make a token and give it to the Worker, and bind a KV namespace where agents leave a sign of life:
+   ```sh
+   openssl rand -hex 32 | pnpm wrangler secret put AGENT_TOKEN
+   pnpm wrangler kv namespace create jitrunner-agents
+   ```
+   Add the namespace to `wrangler.jsonc` as `"kv_namespaces": [{ "binding": "AGENTS", "id": "<its id>" }]` and
+   deploy again.
+2. On the machine (Ubuntu or Debian):
+   ```sh
+   curl -fsSLO https://raw.githubusercontent.com/nisarahamedk/jitrunner/main/agent/install.sh
+   sudo JITRUNNER_URL=https://jitrunner.<you>.workers.dev JITRUNNER_AGENT_TOKEN=<token> bash install.sh
+   ```
+   This installs Docker, builds the job image and starts the `jitrunner-agent` service. `JITRUNNER_SLOTS=2` runs two
+   jobs at once.
+
+The job container has passwordless `sudo`, so steps like `sudo apt-get install` and
+`playwright install --with-deps` work. It also gets 2 GB of shared memory for browsers. Jobs that need Docker
+themselves (service containers, `docker build`) are not supported in the container.
+
+Agents never offer the `ephemeral` label. The machine is not wiped between jobs, and a container shares its kernel,
+so jobs holding production credentials stay on `[self-hosted, jit, ephemeral]`, which always means a fresh server.
+
+Any ordinary
 [self-hosted runner](https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/adding-self-hosted-runners)
-on the repo with the label `jit`, and install it as a service. That's all. jitrunner reads GitHub's runner list,
-so it sees the machine whenever it's online. It never manages or touches your machines, and never names them
-`jit-*`.
-
-Your machines are not wiped between jobs. Keep jobs that need a clean machine (deploys, anything holding production
-credentials) on `[self-hosted, jit, ephemeral]`.
+with the label `jit` works too. jitrunner sees it in GitHub's runner list and lets it take jobs first for
+`GRACE_SECONDS`. It just runs every job on the bare machine.
 
 ## Settings
 
 Vars in `wrangler.jsonc`:
 
-| Var                  | Default        | Meaning                                                                          |
-| -------------------- | -------------- | -------------------------------------------------------------------------------- |
-| `LABEL`              | `jit`          | Jobs whose `runs-on` includes this label are jitrunner's                         |
-| `NAME_PREFIX`        | `jit`          | Servers and runners are named `<prefix>-<job id>`; servers carry the label too   |
-| `SERVER_TYPE`        | `cx23`         | Any Hetzner Cloud type; `cax*` is Arm                                            |
-| `LOCATION`           | `fsn1`         | Hetzner location (`fsn1`, `nbg1`, `hel1`, `ash`, `hil`, `sin`)                   |
-| `IMAGE`              | `ubuntu-24.04` | An image name or a snapshot id                                                   |
-| `MAX_SERVERS`        | `3`            | Never more JIT servers than this at once; jobs past it wait                      |
-| `GRACE_SECONDS`      | `30`           | How long a job waits for one of your free machines before getting a server       |
-| `BOOT_GRACE_SECONDS` | `600`          | How long a new server may take to register its runner                            |
-| `IDLE_SECONDS`       | `900`          | A registered runner idle this long has its server deleted                        |
-| `MAX_AGE_SECONDS`    | `21600`        | Every server is deleted at this age, busy or not (GitHub's own job limit is 6 h) |
-| `ALLOW_PUBLIC_REPOS` | `false`        | Leave off unless you know what fork pull requests can do on self-hosted runners  |
+| Var                   | Default          | Meaning                                                                          |
+| --------------------- | ---------------- | -------------------------------------------------------------------------------- |
+| `LABEL`               | `jit`            | Jobs whose `runs-on` includes this label are jitrunner's                         |
+| `NAME_PREFIX`         | `jit`            | Servers and runners are named `<prefix>-<job id>`; servers carry the label too   |
+| `SERVER_TYPE`         | `cx23`           | Any Hetzner Cloud type; `cax*` is Arm                                            |
+| `LOCATION`            | `fsn1,nbg1,hel1` | Hetzner locations, tried in order when one has no room for `SERVER_TYPE`         |
+| `IMAGE`               | `ubuntu-24.04`   | An image name or a snapshot id                                                   |
+| `MAX_SERVERS`         | `3`              | Never more JIT servers than this at once; jobs past it wait                      |
+| `GRACE_SECONDS`       | `30`             | How long a job waits for one of your free machines before getting a server       |
+| `BOOT_GRACE_SECONDS`  | `600`            | How long a new server may take to register its runner                            |
+| `IDLE_SECONDS`        | `300`            | A runner with no job after this long gives up and its server is deleted          |
+| `MAX_AGE_SECONDS`     | `21600`          | Every server is deleted at this age, busy or not (GitHub's own job limit is 6 h) |
+| `AGENT_GRACE_SECONDS` | `20`             | While an agent is up, how long a job waits for it (at most 25)                   |
+| `ALLOW_PUBLIC_REPOS`  | `false`          | Leave off unless you know what fork pull requests can do on self-hosted runners  |
 
 ## Security notes
 

@@ -1,0 +1,22 @@
+{
+	"name": "jitrunner",
+	"version": "0.1.0",
+	"private": true,
+	"description": "GitHub Actions runners: your own machines first, a fresh Hetzner server per job when none is free. Runs on a Cloudflare Worker.",
+	"license": "MIT",
+	"type": "module",
+	"scripts": {
+		"check": "tsc --noEmit && prettier --check . && vitest run",
+		"test": "vitest run",
+		"deploy": "wrangler deploy",
+		"build-image": "node scripts/build-image.ts"
+	},
+	"devDependencies": {
+		"@cloudflare/workers-types": "4.20251231.0",
+		"@types/node": "22.15.0",
+		"prettier": "3.5.3",
+		"typescript": "5.8.3",
+		"vitest": "3.1.2",
+		"wrangler": "4.40.0"
+	}
+}

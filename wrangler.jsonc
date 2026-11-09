@@ -1,0 +1,26 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "jitrunner",
+	"main": "src/index.ts",
+	"compatibility_date": "2025-09-01",
+	// Every minute: catch jobs whose webhook was lost, and delete servers that are done, stuck or too old.
+	"triggers": { "crons": ["* * * * *"] },
+	"observability": { "enabled": true },
+	"vars": {
+		// Jobs opt in with runs-on: [self-hosted, jit]. Register your own machines with this label too.
+		"LABEL": "jit",
+		"NAME_PREFIX": "jit",
+		// The cheapest x86 type when written (2 vCPU, 4 GB). cax11 is Arm.
+		"SERVER_TYPE": "cx23",
+		"LOCATION": "fsn1",
+		// Stock Ubuntu installs the runner on every boot (about a minute); a snapshot from `pnpm build-image` skips that.
+		"IMAGE": "ubuntu-24.04",
+		"MAX_SERVERS": "3",
+		"GRACE_SECONDS": "30",
+		"BOOT_GRACE_SECONDS": "600",
+		"IDLE_SECONDS": "900",
+		"MAX_AGE_SECONDS": "21600",
+		"ALLOW_PUBLIC_REPOS": "false",
+	},
+	// Secrets (wrangler secret put): GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY, GITHUB_WEBHOOK_SECRET, HCLOUD_TOKEN
+}

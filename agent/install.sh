@@ -8,7 +8,7 @@
 set -euo pipefail
 
 : "${JITRUNNER_URL:?Set JITRUNNER_URL to your Worker}"
-: "${JITRUNNER_AGENT_TOKEN:?Set JITRUNNER_AGENT_TOKEN to the Worker's AGENT_TOKEN}"
+: "${JITRUNNER_AGENT_TOKEN:?Set JITRUNNER_AGENT_TOKEN to the AGENT_TOKEN secret of your Worker}"
 repo=${JITRUNNER_REPO:-https://github.com/nisarahamedk/jitrunner}
 ref=${JITRUNNER_REF:-main}
 

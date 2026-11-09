@@ -36,6 +36,16 @@ export function isJitName(config: Config, name: string): boolean {
 	return name.startsWith(`${config.prefix}-`);
 }
 
+/** The runner an agent on one of your machines starts for a job. GitHub refuses a second runner with the same name,
+ * so minting its JIT config doubles as a lock: one job, one claim, across every agent. */
+export function agentRunnerName(config: Config, jobId: number): string {
+	return `agent-${config.prefix}-${jobId}`;
+}
+
+export function isAgentName(config: Config, name: string): boolean {
+	return name.startsWith(`agent-${config.prefix}-`);
+}
+
 const lower = (labels: string[]) => labels.map((label) => label.toLowerCase());
 
 /** The job asked for jitrunner: its runs-on includes the configured label. */
@@ -51,7 +61,13 @@ export function runnerFits(runner: Runner, jobLabels: string[]): boolean {
 
 /** Your own machines (not JIT servers) that are online and idle right now. */
 export function freeOwnRunners(config: Config, runners: Runner[]): Runner[] {
-	return runners.filter((runner) => !isJitName(config, runner.name) && runner.status === 'online' && !runner.busy);
+	return runners.filter(
+		(runner) =>
+			!isJitName(config, runner.name) &&
+			!isAgentName(config, runner.name) &&
+			runner.status === 'online' &&
+			!runner.busy,
+	);
 }
 
 /** The labels a JIT server's runner registers with: exactly what the job asked for, plus GitHub's defaults. */
@@ -94,17 +110,22 @@ export function provision(
 	servers: Server[],
 	runners: Runner[],
 	arch: 'X64' | 'ARM64',
+	/** An agent asked for work in the last few minutes, so young jobs are left for it to claim. */
+	agentsAlive = false,
 ): Action[] {
 	const actions: Action[] = [];
 	const names = new Set(servers.map((server) => server.name));
+	const claimed = new Set(runners.map((runner) => runner.name));
 	let count = servers.filter((server) => isJitName(config, server.name)).length;
 	// Each free machine of yours is expected to take one waiting job, so only that many jobs wait for them.
 	const free = freeOwnRunners(config, runners);
 	for (const job of [...jobs].sort((a, b) => a.created - b.created)) {
 		if (!wantsJit(config, job.labels)) continue;
 		const name = serverName(config, job.id);
-		if (names.has(name)) continue;
+		if (names.has(name) || claimed.has(agentRunnerName(config, job.id))) continue;
 		const waited = (now - job.created) / 1000;
+		// With agents, a young job is theirs to claim first.
+		if (agentsAlive && waited < config.agentGraceSeconds) continue;
 		if (waited < config.graceSeconds) {
 			const index = free.findIndex((runner) => runnerFits(runner, job.labels));
 			if (index !== -1) {
@@ -118,6 +139,33 @@ export function provision(
 		count += 1;
 	}
 	return actions;
+}
+
+/**
+ * Jobs an agent may claim: they asked for jitrunner, every label they ask for is one the agent has (so a job that
+ * asks for `ephemeral` never reaches an agent that lacks it), and no server or other agent has them yet.
+ */
+export function claimable(
+	config: Config,
+	jobs: QueuedJob[],
+	servers: Server[],
+	runners: Runner[],
+	agentLabels: string[],
+	slots: number,
+): QueuedJob[] {
+	const have = new Set(lower(agentLabels));
+	const serverNames = new Set(servers.map((server) => server.name));
+	const runnerNames = new Set(runners.map((runner) => runner.name));
+	return [...jobs]
+		.sort((a, b) => a.created - b.created)
+		.filter(
+			(job) =>
+				wantsJit(config, job.labels) &&
+				lower(job.labels).every((label) => have.has(label)) &&
+				!serverNames.has(serverName(config, job.id)) &&
+				!runnerNames.has(agentRunnerName(config, job.id)),
+		)
+		.slice(0, Math.max(0, slots));
 }
 
 /** Hetzner server types starting with "cax" are Arm (Ampere); the rest are x86. */

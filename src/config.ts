@@ -6,6 +6,10 @@ export interface Env {
 	GITHUB_APP_PRIVATE_KEY: string; // the .pem GitHub gives you, PKCS#1 or PKCS#8
 	GITHUB_WEBHOOK_SECRET: string;
 	HCLOUD_TOKEN: string;
+	/** Shared by your agents (agent/agent.mjs). Unset: no agents, and queued jobs get a server without waiting. */
+	AGENT_TOKEN?: string;
+	/** KV namespace where agents leave a sign of life, so jobs only wait for agents that are actually up. */
+	AGENTS?: KVNamespace;
 	// Vars
 	LABEL: string;
 	NAME_PREFIX: string;
@@ -18,6 +22,7 @@ export interface Env {
 	IDLE_SECONDS: string;
 	MAX_AGE_SECONDS: string;
 	ALLOW_PUBLIC_REPOS: string;
+	AGENT_GRACE_SECONDS: string;
 }
 
 export interface Config {
@@ -41,6 +46,9 @@ export interface Config {
 	maxAgeSeconds: number;
 	/** Self-hosted runners on public repos run code from anyone who can open a pull request. */
 	allowPublicRepos: boolean;
+	/** With agents set up: how long a queued job waits for one to claim it before it gets a server (at most 25). */
+	agentGraceSeconds: number;
+	agentToken: string | undefined;
 }
 
 function int(name: string, value: string): number {
@@ -65,5 +73,7 @@ export function readConfig(env: Env): Config {
 		idleSeconds: int('IDLE_SECONDS', env.IDLE_SECONDS),
 		maxAgeSeconds: int('MAX_AGE_SECONDS', env.MAX_AGE_SECONDS),
 		allowPublicRepos: env.ALLOW_PUBLIC_REPOS === 'true',
+		agentGraceSeconds: Math.min(25, int('AGENT_GRACE_SECONDS', env.AGENT_GRACE_SECONDS)),
+		agentToken: env.AGENT_TOKEN || undefined,
 	};
 }

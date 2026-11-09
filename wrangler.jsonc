@@ -21,6 +21,9 @@
 		"IDLE_SECONDS": "900",
 		"MAX_AGE_SECONDS": "21600",
 		"ALLOW_PUBLIC_REPOS": "false",
+		// With AGENT_TOKEN set: a queued job waits this long for one of your agents before getting a server.
+		"AGENT_GRACE_SECONDS": "20",
 	},
-	// Secrets (wrangler secret put): GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY, GITHUB_WEBHOOK_SECRET, HCLOUD_TOKEN
+	// Secrets (wrangler secret put): GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY, GITHUB_WEBHOOK_SECRET, HCLOUD_TOKEN,
+	// and AGENT_TOKEN if you run agents on your own machines
 }

@@ -6,7 +6,7 @@ const config: Config = {
 	label: 'jit',
 	prefix: 'jit',
 	serverType: 'cx23',
-	location: 'fsn1',
+	locations: ['fsn1'],
 	image: 'ubuntu-24.04',
 	maxServers: 2,
 	graceSeconds: 30,

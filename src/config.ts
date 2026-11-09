@@ -31,7 +31,8 @@ export interface Config {
 	/** Hetzner server names and runner names start with `${prefix}-`. */
 	prefix: string;
 	serverType: string;
-	location: string;
+	/** Tried in order; the next one is used when Hetzner has no room for SERVER_TYPE. */
+	locations: string[];
 	/** A Hetzner image name (ubuntu-24.04) or a snapshot id from scripts/build-image.ts. */
 	image: string;
 	/** Never more than this many JIT servers at once, across all repos. Caps the bill. */
@@ -65,7 +66,9 @@ export function readConfig(env: Env): Config {
 		label: env.LABEL,
 		prefix: env.NAME_PREFIX,
 		serverType: env.SERVER_TYPE,
-		location: env.LOCATION,
+		locations: env.LOCATION.split(',')
+			.map((location) => location.trim())
+			.filter(Boolean),
 		image: env.IMAGE,
 		maxServers: int('MAX_SERVERS', env.MAX_SERVERS),
 		graceSeconds: int('GRACE_SECONDS', env.GRACE_SECONDS),

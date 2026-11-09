@@ -122,20 +122,20 @@ with the label `jit` works too. jitrunner sees it in GitHub's runner list and le
 
 Vars in `wrangler.jsonc`:
 
-| Var                   | Default        | Meaning                                                                          |
-| --------------------- | -------------- | -------------------------------------------------------------------------------- |
-| `LABEL`               | `jit`          | Jobs whose `runs-on` includes this label are jitrunner's                         |
-| `NAME_PREFIX`         | `jit`          | Servers and runners are named `<prefix>-<job id>`; servers carry the label too   |
-| `SERVER_TYPE`         | `cx23`         | Any Hetzner Cloud type; `cax*` is Arm                                            |
-| `LOCATION`            | `fsn1`         | Hetzner location (`fsn1`, `nbg1`, `hel1`, `ash`, `hil`, `sin`)                   |
-| `IMAGE`               | `ubuntu-24.04` | An image name or a snapshot id                                                   |
-| `MAX_SERVERS`         | `3`            | Never more JIT servers than this at once; jobs past it wait                      |
-| `GRACE_SECONDS`       | `30`           | How long a job waits for one of your free machines before getting a server       |
-| `BOOT_GRACE_SECONDS`  | `600`          | How long a new server may take to register its runner                            |
-| `IDLE_SECONDS`        | `900`          | A registered runner idle this long has its server deleted                        |
-| `MAX_AGE_SECONDS`     | `21600`        | Every server is deleted at this age, busy or not (GitHub's own job limit is 6 h) |
-| `AGENT_GRACE_SECONDS` | `20`           | While an agent is up, how long a job waits for it (at most 25)                   |
-| `ALLOW_PUBLIC_REPOS`  | `false`        | Leave off unless you know what fork pull requests can do on self-hosted runners  |
+| Var                   | Default          | Meaning                                                                          |
+| --------------------- | ---------------- | -------------------------------------------------------------------------------- |
+| `LABEL`               | `jit`            | Jobs whose `runs-on` includes this label are jitrunner's                         |
+| `NAME_PREFIX`         | `jit`            | Servers and runners are named `<prefix>-<job id>`; servers carry the label too   |
+| `SERVER_TYPE`         | `cx23`           | Any Hetzner Cloud type; `cax*` is Arm                                            |
+| `LOCATION`            | `fsn1,nbg1,hel1` | Hetzner locations, tried in order when one has no room for `SERVER_TYPE`         |
+| `IMAGE`               | `ubuntu-24.04`   | An image name or a snapshot id                                                   |
+| `MAX_SERVERS`         | `3`              | Never more JIT servers than this at once; jobs past it wait                      |
+| `GRACE_SECONDS`       | `30`             | How long a job waits for one of your free machines before getting a server       |
+| `BOOT_GRACE_SECONDS`  | `600`            | How long a new server may take to register its runner                            |
+| `IDLE_SECONDS`        | `900`            | A registered runner idle this long has its server deleted                        |
+| `MAX_AGE_SECONDS`     | `21600`          | Every server is deleted at this age, busy or not (GitHub's own job limit is 6 h) |
+| `AGENT_GRACE_SECONDS` | `20`             | While an agent is up, how long a job waits for it (at most 25)                   |
+| `ALLOW_PUBLIC_REPOS`  | `false`          | Leave off unless you know what fork pull requests can do on self-hosted runners  |
 
 ## Security notes
 

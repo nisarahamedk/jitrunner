@@ -50,12 +50,14 @@ async function create(
 	const result = await hetzner.create({
 		name: action.name,
 		serverType: config.serverType,
-		location: config.location,
+		locations: config.locations,
 		image: config.image,
 		userData: bootScript(jitConfig),
 		sshKey: await hetzner.lockoutKey(),
 	});
-	console.log(`${result} ${action.name} for job ${action.jobId} in ${repo.owner}/${repo.name}`);
+	console.log(
+		`${result === 'exists' ? 'exists' : `created in ${result.created}`} ${action.name} for job ${action.jobId} in ${repo.owner}/${repo.name}`,
+	);
 }
 
 async function onWebhook(env: Env, event: WorkflowJobEvent): Promise<void> {

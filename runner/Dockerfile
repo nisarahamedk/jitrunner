@@ -18,8 +18,8 @@ RUN useradd --create-home --shell /bin/bash runner \
 
 WORKDIR /opt/actions-runner
 RUN arch=$(dpkg --print-architecture | sed 's/amd64/x64/') \
-	&& version=$(curl -fsSL https://api.github.com/repos/actions/runner/releases/latest | jq -r .tag_name | sed 's/^v//') \
-	&& curl -fsSL "https://github.com/actions/runner/releases/download/v$version/actions-runner-linux-$arch-$version.tar.gz" \
+	&& version=$(curl -fsSL --retry 5 --retry-all-errors -o /dev/null -w '%{url_effective}' https://github.com/actions/runner/releases/latest | sed 's#.*/v##') \
+	&& curl -fsSL --retry 5 --retry-all-errors "https://github.com/actions/runner/releases/download/v$version/actions-runner-linux-$arch-$version.tar.gz" \
 		| tar -xz \
 	&& apt-get update \
 	&& ./bin/installdependencies.sh \

@@ -21,6 +21,7 @@ RUN arch=$(dpkg --print-architecture | sed 's/amd64/x64/') \
 	&& version=$(curl -fsSL https://api.github.com/repos/actions/runner/releases/latest | jq -r .tag_name | sed 's/^v//') \
 	&& curl -fsSL "https://github.com/actions/runner/releases/download/v$version/actions-runner-linux-$arch-$version.tar.gz" \
 		| tar -xz \
+	&& apt-get update \
 	&& ./bin/installdependencies.sh \
 	&& rm -rf /var/lib/apt/lists/* \
 	&& chown -R runner:runner /opt/actions-runner

@@ -9,7 +9,7 @@
 //
 // Environment:
 //   JITRUNNER_URL            the Worker, e.g. https://jitrunner.you.workers.dev (required)
-//   JITRUNNER_AGENT_TOKEN    the Worker's AGENT_TOKEN secret (required)
+//   JITRUNNER_AGENT_TOKEN    this machine's agent token; install.sh makes it (required)
 //   JITRUNNER_AGENT_NAME     shown in logs (default: the host name)
 //   JITRUNNER_SLOTS          jobs at once (default 1)
 //   JITRUNNER_LABELS         labels this machine offers (default: self-hosted,Linux,<X64|ARM64>,jit). Never add

@@ -131,7 +131,7 @@ const ALIVE_KEY = 'agent-alive';
 const AGENT_ALIVE_TTL = 300;
 
 async function agentsAlive(env: Env): Promise<boolean> {
-	if (!env.AGENT_TOKEN || !env.AGENTS) return false;
+	if (!env.AGENT_TOKEN_SHA256 || !env.AGENTS) return false;
 	return (await env.AGENTS.get(ALIVE_KEY)) !== null;
 }
 
@@ -215,10 +215,16 @@ async function reconcile(env: Env): Promise<void> {
 	}
 }
 
+async function sha256Hex(text: string): Promise<string> {
+	const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)));
+	return Array.from(digest, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
 async function agentClaim(request: Request, env: Env): Promise<Response> {
-	const token = readConfig(env).agentToken;
+	const hashes = readConfig(env).agentTokenHashes;
 	const given = request.headers.get('Authorization')?.replace(/^Bearer /, '') ?? '';
-	if (!token || request.method !== 'POST' || !safeEqual(given, token)) {
+	const hash = await sha256Hex(given);
+	if (request.method !== 'POST' || !given || !hashes.some((known) => safeEqual(hash, known))) {
 		return new Response('Unauthorized\n', { status: 401 });
 	}
 	const body = (await request.json()) as ClaimRequest;

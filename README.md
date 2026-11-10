@@ -91,17 +91,21 @@ Hetzner token is ever on it.
 While an agent is up, a queued job waits `AGENT_GRACE_SECONDS` (default 20) for it before getting a server. A busy
 or switched-off agent stops asking for work, and jobs stop waiting for it within five minutes.
 
-1. Make a token and give it to the Worker, and bind a KV namespace where agents leave a sign of life:
+1. Bind a KV namespace where agents leave a sign of life:
    ```sh
-   openssl rand -hex 32 | pnpm wrangler secret put AGENT_TOKEN
    pnpm wrangler kv namespace create jitrunner-agents
    ```
-   Add the namespace to `wrangler.jsonc` as `"kv_namespaces": [{ "binding": "AGENTS", "id": "<its id>" }]` and
-   deploy again.
-2. On the machine (Ubuntu or Debian):
+   Add it to `wrangler.jsonc` as `"kv_namespaces": [{ "binding": "AGENTS", "id": "<its id>" }]` and deploy again.
+2. On the machine (Ubuntu, Debian or Mint):
    ```sh
    curl -fsSLO https://raw.githubusercontent.com/nisarahamedk/jitrunner/main/agent/install.sh
-   sudo JITRUNNER_URL=https://jitrunner.<you>.workers.dev JITRUNNER_AGENT_TOKEN=<token> bash install.sh
+   sudo JITRUNNER_URL=https://jitrunner.<you>.workers.dev bash install.sh
+   ```
+   It makes the machine's own agent token, keeps it there (root only), and prints the token's SHA-256.
+3. Give the Worker that hash. With several machines, list one hash per machine, comma separated, so you can drop one
+   without touching the others:
+   ```sh
+   echo <hash>[,<hash>...] | pnpm wrangler secret put AGENT_TOKEN_SHA256
    ```
    This installs Docker, builds the job image and starts the `jitrunner-agent` service. `JITRUNNER_SLOTS=2` runs two
    jobs at once.

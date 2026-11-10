@@ -15,9 +15,9 @@ const config: Config = {
 	maxAgeSeconds: 21600,
 	allowPublicRepos: false,
 	agentGraceSeconds: 20,
-	agentToken: undefined,
+	agentTokenHashes: [],
 };
-const withAgents: Config = { ...config, agentToken: 'token' };
+const withAgents: Config = { ...config, agentTokenHashes: ['hash'] };
 const now = Date.parse('2026-11-09T12:00:00Z');
 const ago = (seconds: number) => now - seconds * 1000;
 const laptop = (busy = false): Runner => ({

@@ -55,11 +55,17 @@ export class Hetzner {
 		const servers: Server[] = [];
 		for (let page = 1; ; page += 1) {
 			const { servers: batch, meta } = await this.call<{
-				servers: { id: number; name: string; created: string; status: string }[];
+				servers: { id: number; name: string; created: string; status: string; labels: Record<string, string> }[];
 				meta: { pagination: { next_page: number | null } };
 			}>('GET', `/servers?label_selector=${encodeURIComponent(this.selector)}&per_page=50&page=${page}`);
 			for (const server of batch)
-				servers.push({ id: server.id, name: server.name, created: Date.parse(server.created), status: server.status });
+				servers.push({
+					id: server.id,
+					name: server.name,
+					created: Date.parse(server.created),
+					status: server.status,
+					reuse: server.labels.reuse === 'yes',
+				});
 			if (!meta.pagination.next_page) return servers;
 		}
 	}
@@ -75,6 +81,7 @@ export class Hetzner {
 		image: string;
 		userData: string;
 		sshKey: string;
+		reuse?: boolean;
 	}): Promise<'exists' | { created: string }> {
 		let lastError: unknown;
 		for (const location of options.locations) {
@@ -91,7 +98,7 @@ export class Hetzner {
 
 	private async createIn(
 		location: string,
-		options: { name: string; serverType: string; image: string; userData: string; sshKey: string },
+		options: { name: string; serverType: string; image: string; userData: string; sshKey: string; reuse?: boolean },
 	): Promise<'created' | 'exists'> {
 		try {
 			await this.call('POST', '/servers', {
@@ -101,7 +108,7 @@ export class Hetzner {
 				image: options.image,
 				user_data: options.userData,
 				ssh_keys: [options.sshKey],
-				labels: { jitrunner: this.prefix },
+				labels: { jitrunner: this.prefix, ...(options.reuse ? { reuse: 'yes' } : {}) },
 				start_after_create: true,
 				// GitHub has no IPv6, so the runner needs IPv4.
 				public_net: { enable_ipv4: true, enable_ipv6: false },
@@ -121,13 +128,14 @@ export class Hetzner {
 		}
 	}
 
+	/** Deletes the server of a finished job, unless it is a reused one, which goes on to its next job. */
 	async deleteByName(name: string): Promise<void> {
 		const { servers } = await this.call<{ servers: { id: number; labels: Record<string, string> }[] }>(
 			'GET',
 			`/servers?name=${encodeURIComponent(name)}`,
 		);
 		for (const server of servers) {
-			if (server.labels.jitrunner === this.prefix) await this.delete(server.id);
+			if (server.labels.jitrunner === this.prefix && server.labels.reuse !== 'yes') await this.delete(server.id);
 		}
 	}
 

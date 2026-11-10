@@ -27,6 +27,9 @@ export interface Env {
 	MAX_AGE_SECONDS: string;
 	ALLOW_PUBLIC_REPOS: string;
 	AGENT_GRACE_SECONDS: string;
+	REUSE_SECONDS?: string;
+	/** This Worker's own URL, which reused servers ask for their next job (needed with REUSE_SECONDS). */
+	PUBLIC_URL?: string;
 }
 
 export interface Config {
@@ -60,6 +63,14 @@ export interface Config {
 	agentGraceSeconds: number;
 	/** Hashes of the agent tokens jitrunner accepts; empty means no agents. */
 	agentTokenHashes: string[];
+	/**
+	 * Hetzner bills every server for a whole hour. With this set, a server whose job asked for nothing beyond
+	 * self-hosted, LABEL and the GitHub defaults stays up after it and takes more such jobs, until it has been up this
+	 * long; then it powers off and is deleted. Leave room for a last job to finish inside the hour. 0: one job per server.
+	 */
+	reuseSeconds: number;
+	/** This Worker's URL, for reused servers. */
+	publicUrl: string;
 }
 
 function int(name: string, value: string): number {
@@ -71,6 +82,9 @@ function int(name: string, value: string): number {
 export function readConfig(env: Env): Config {
 	if (!/^[a-z][a-z0-9-]{0,30}$/.test(env.NAME_PREFIX)) {
 		throw new Error('NAME_PREFIX must be lowercase letters, digits and dashes, up to 31 characters');
+	}
+	if (env.REUSE_SECONDS && env.REUSE_SECONDS !== '0' && (!env.PUBLIC_URL || !env.AGENTS)) {
+		throw new Error("REUSE_SECONDS needs PUBLIC_URL (this Worker's URL) and the AGENTS KV namespace");
 	}
 	return {
 		label: env.LABEL,
@@ -96,6 +110,8 @@ export function readConfig(env: Env): Config {
 		maxAgeSeconds: int('MAX_AGE_SECONDS', env.MAX_AGE_SECONDS),
 		allowPublicRepos: env.ALLOW_PUBLIC_REPOS === 'true',
 		agentGraceSeconds: Math.min(25, int('AGENT_GRACE_SECONDS', env.AGENT_GRACE_SECONDS)),
+		reuseSeconds: int('REUSE_SECONDS', env.REUSE_SECONDS ?? '0'),
+		publicUrl: (env.PUBLIC_URL ?? '').replace(/\/$/, ''),
 		agentTokenHashes: (env.AGENT_TOKEN_SHA256 ?? '')
 			.split(',')
 			.map((hash) => hash.trim().toLowerCase())

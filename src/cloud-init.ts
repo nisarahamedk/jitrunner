@@ -47,11 +47,50 @@ watch_idle() {
 }
 `;
 
+/** How a reused server asks the Worker for its next job (REUSE_SECONDS). */
+export interface Reuse {
+	/** The Worker's /agent/claim URL. */
+	claimUrl: string;
+	/** "server <name>:<HMAC of the name>", which the Worker checks without storing anything. */
+	authorization: string;
+	server: string;
+	labels: string[];
+	arch: 'X64' | 'ARM64';
+	/** Stop asking once the server has been up this long. */
+	untilSeconds: number;
+}
+
 /**
- * Boots one ephemeral runner for one job, then powers off; jitrunner deletes powered-off servers. The JIT config is
- * single-use and only valid for this runner name.
+ * After its first job, a reused server asks for the next one every 10 seconds, as an agent would, and runs it with
+ * the same runner install. It stops asking at untilSeconds of uptime and powers off.
  */
-export function bootScript(jitConfig: string, idleSeconds: number): string {
+function reuseLoop(reuse: Reuse, idleSeconds: number): string {
+	const body = JSON.stringify({ agent: reuse.server, labels: reuse.labels, arch: reuse.arch, slots: 1 });
+	return `
+trap - ERR
+set +e
+while [ "$(cut -d. -f1 /proc/uptime)" -lt ${reuse.untilSeconds} ]; do
+	jit=$(curl -fsS --max-time 30 -X POST -H ${shellQuote(`Authorization: ${reuse.authorization}`)} \
+		-H 'Content-Type: application/json' -d ${shellQuote(body)} ${shellQuote(reuse.claimUrl)} \
+		| jq -r '.claims[0].jitConfig // empty')
+	if [ -z "$jit" ]; then sleep 10; continue; fi
+	echo "jitrunner: next job"
+	# A fresh start for each runner: no settings or logs left from the last one.
+	rm -rf /opt/actions-runner/_diag /opt/actions-runner/.runner /opt/actions-runner/.credentials*
+	watch_idle ${idleSeconds} /opt/actions-runner &
+	watcher=$!
+	sudo -u runner -H ./run.sh --jitconfig "$jit"
+	kill "$watcher" 2>/dev/null
+done
+echo "jitrunner: reuse time is up"
+`;
+}
+
+/**
+ * Boots one ephemeral runner for one job (and, with reuse, more jobs after it), then powers off; jitrunner deletes
+ * powered-off servers. The JIT config is single-use and only valid for this runner name.
+ */
+export function bootScript(jitConfig: string, idleSeconds: number, reuse?: Reuse): string {
 	return `#!/bin/bash
 set -Eeuo pipefail
 # A failed setup powers off at once, so jitrunner deletes the server and makes a new one within a minute or two,
@@ -62,7 +101,10 @@ ${IDLE_WATCHDOG}
 install_runner
 cd /opt/actions-runner
 watch_idle ${idleSeconds} /opt/actions-runner &
+watcher=$!
 sudo -u runner -H ./run.sh --jitconfig ${shellQuote(jitConfig)} || true
+kill "$watcher" 2>/dev/null || true
+${reuse ? reuseLoop(reuse, idleSeconds) : ''}
 poweroff
 `;
 }

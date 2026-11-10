@@ -5,7 +5,7 @@
 //   cron            every minute: create servers for jobs still waiting, delete servers that are done or stuck
 
 import { readConfig, type Config, type Env } from './config.ts';
-import { bootScript } from './cloud-init.ts';
+import { bootScript, type Reuse } from './cloud-init.ts';
 import { GitHubError, Installation, type Repo, safeEqual, verifyWebhook } from './github.ts';
 import { Hetzner } from './hetzner.ts';
 import {
@@ -15,6 +15,7 @@ import {
 	cleanup,
 	isAgentName,
 	isJitName,
+	plainLabels,
 	provision,
 	runnerLabels,
 	type Action,
@@ -34,6 +35,7 @@ function allowed(config: Config, repo: Repo): boolean {
 }
 
 async function create(
+	env: Env,
 	config: Config,
 	hetzner: Hetzner,
 	installation: Installation,
@@ -48,13 +50,25 @@ async function create(
 		if (error instanceof GitHubError && error.status === 409) return;
 		throw error;
 	}
+	const arch = archOf(action.serverType);
+	const reuse: Reuse | undefined = action.reuse
+		? {
+				claimUrl: `${config.publicUrl}/agent/claim`,
+				authorization: `server ${action.name}:${await serverToken(env, action.name)}`,
+				server: action.name,
+				labels: plainLabels(config, arch),
+				arch,
+				untilSeconds: config.reuseSeconds,
+			}
+		: undefined;
 	const result = await hetzner.create({
 		name: action.name,
 		serverType: action.serverType,
 		locations: config.locations,
 		image: config.image,
-		userData: bootScript(jitConfig, config.idleSeconds),
+		userData: bootScript(jitConfig, config.idleSeconds, reuse),
 		sshKey: await hetzner.lockoutKey(),
+		reuse: action.reuse,
 	});
 	console.log(
 		`${result === 'exists' ? 'exists' : `created in ${result.created}`} ${action.name} for job ${action.jobId} in ${repo.owner}/${repo.name}`,
@@ -92,7 +106,7 @@ async function onWebhook(env: Env, event: WorkflowJobEvent): Promise<void> {
 	const [servers, runners] = await Promise.all([hetzner.servers(), installation.runners(repo)]);
 	const queued = [{ id: job.id, labels: job.labels, created: Date.parse(job.created_at) }];
 	for (const action of provision(config, Date.now(), queued, servers, runners, archOf(config.serverType), alive)) {
-		if (action.kind === 'create') await create(config, hetzner, installation, repo, action);
+		if (action.kind === 'create') await create(env, config, hetzner, installation, repo, action);
 	}
 }
 
@@ -131,7 +145,7 @@ const ALIVE_KEY = 'agent-alive';
 const AGENT_ALIVE_TTL = 300;
 
 async function agentsAlive(env: Env): Promise<boolean> {
-	if (!env.AGENT_TOKEN_SHA256 || !env.AGENTS) return false;
+	if (!(env.AGENT_TOKEN_SHA256 || readConfig(env).reuseSeconds > 0) || !env.AGENTS) return false;
 	return (await env.AGENTS.get(ALIVE_KEY)) !== null;
 }
 
@@ -227,7 +241,7 @@ async function reconcile(env: Env): Promise<void> {
 		}
 		for (const action of provision(config, now, jobs, servers, runners, archOf(config.serverType), alive)) {
 			if (action.kind !== 'create') continue;
-			await create(config, hetzner, installation, repo, action);
+			await create(env, config, hetzner, installation, repo, action);
 			servers.push({ id: -1, name: action.name, created: now });
 		}
 	}
@@ -238,14 +252,44 @@ async function sha256Hex(text: string): Promise<string> {
 	return Array.from(digest, (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
+/** What a reused server proves itself with: an HMAC of its name under the webhook secret, so nothing is stored. */
+async function serverToken(env: Env, server: string): Promise<string> {
+	const key = await crypto.subtle.importKey(
+		'raw',
+		new TextEncoder().encode(env.GITHUB_WEBHOOK_SECRET),
+		{ name: 'HMAC', hash: 'SHA-256' },
+		false,
+		['sign'],
+	);
+	const mac = new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`server:${server}`)));
+	return Array.from(mac, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+/** The reused server an Authorization header proves, if any. */
+async function claimingServer(env: Env, config: Config, authorization: string): Promise<string | undefined> {
+	const match = /^server ([a-z0-9-]+):([0-9a-f]{64})$/.exec(authorization);
+	if (!match || config.reuseSeconds === 0 || !isJitName(config, match[1]!)) return undefined;
+	return safeEqual(match[2]!, await serverToken(env, match[1]!)) ? match[1] : undefined;
+}
+
 async function agentClaim(request: Request, env: Env): Promise<Response> {
-	const hashes = readConfig(env).agentTokenHashes;
-	const given = request.headers.get('Authorization')?.replace(/^Bearer /, '') ?? '';
+	const config = readConfig(env);
+	const authorization = request.headers.get('Authorization') ?? '';
+	const given = authorization.replace(/^Bearer /, '');
 	const hash = await sha256Hex(given);
-	if (request.method !== 'POST' || !given || !hashes.some((known) => safeEqual(hash, known))) {
+	const server = await claimingServer(env, config, authorization);
+	if (
+		request.method !== 'POST' ||
+		(!server && (!given || !config.agentTokenHashes.some((known) => safeEqual(hash, known))))
+	) {
 		return new Response('Unauthorized\n', { status: 401 });
 	}
 	const body = (await request.json()) as ClaimRequest;
+	// A reused server only ever takes plain jobs, whatever it asks for.
+	if (server && (body.arch === 'X64' || body.arch === 'ARM64')) {
+		body.agent = server;
+		body.labels = plainLabels(config, body.arch);
+	}
 	if (
 		typeof body.agent !== 'string' ||
 		!Array.isArray(body.labels) ||

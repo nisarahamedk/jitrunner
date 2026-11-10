@@ -17,6 +17,8 @@ const config: Config = {
 	allowPublicRepos: false,
 	agentGraceSeconds: 20,
 	agentTokenHashes: [],
+	reuseSeconds: 0,
+	publicUrl: '',
 };
 const withAgents: Config = { ...config, agentTokenHashes: ['hash'] };
 const now = Date.parse('2026-11-09T12:00:00Z');
@@ -43,6 +45,7 @@ describe('provision', () => {
 				name: 'jit-7',
 				labels: ['self-hosted', 'Linux', 'X64', 'jit'],
 				serverType: 'cx23',
+				reuse: false,
 			},
 		]);
 	});
@@ -88,6 +91,40 @@ describe('server types', () => {
 	it('gives every other job SERVER_TYPE', () => {
 		const [action] = provision(typed, now, [job(7, 0)], [], [], 'X64');
 		expect(action?.kind === 'create' && action.serverType).toBe('cx33');
+	});
+});
+
+describe('reuse', () => {
+	const reusing: Config = { ...config, reuseSeconds: 2520, publicUrl: 'https://jit.example' };
+	const reused = (age: number, status = 'running'): Server => ({
+		id: 9,
+		name: 'jit-9',
+		created: ago(age),
+		status,
+		reuse: true,
+	});
+
+	it('marks plain jobs reusable, and never a job asking for more', () => {
+		const actions = provision(reusing, now, [job(1, 0), job(2, 0, ['self-hosted', 'jit', 'ephemeral'])], [], [], 'X64');
+		expect(actions.map((action) => action.kind === 'create' && action.reuse)).toEqual([true, false]);
+	});
+
+	it('reuses nothing when REUSE_SECONDS is 0', () => {
+		const [action] = provision(config, now, [job(1, 0)], [], [], 'X64');
+		expect(action?.kind === 'create' && action.reuse).toBe(false);
+	});
+
+	it('keeps a reused server between jobs, when no runner has its name', () => {
+		expect(cleanup(reusing, now, [reused(1200)], [])).toEqual([]);
+	});
+
+	it('deletes a reused server once it powers itself off', () => {
+		expect(cleanup(reusing, now, [reused(2600, 'off')], [])).toHaveLength(1);
+	});
+
+	it('deletes a reused server still up half an hour past REUSE_SECONDS', () => {
+		expect(cleanup(reusing, now, [reused(2520 + 1801)], [])).toHaveLength(1);
+		expect(cleanup(reusing, now, [reused(2520 + 1700)], [])).toEqual([]);
 	});
 });
 

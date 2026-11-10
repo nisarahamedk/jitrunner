@@ -25,3 +25,10 @@ jobs:
       - run: DOCKER_BUILDKIT=0 docker build -t jitrunner-runner runner/
       - name: The job image runs the GitHub runner
         run: docker run --rm --entrypoint ./run.sh jitrunner-runner --version
+      # As an agent runs it: the runner user must be able to write its workspace and the cached folders, volumes or not.
+      - name: The runner can write its workspace and caches
+        run: |
+          docker run --rm --entrypoint sh \
+            -v check-tool:/opt/actions-runner/_work/_tool -v check-cache:/home/runner/.cache \
+            -v check-pnpm:/home/runner/.local/share/pnpm jitrunner-runner -c \
+            'mkdir -p _work/repo _work/_tool/node ~/.cache/ms-playwright ~/.local/share/pnpm/store ~/.local/bin'

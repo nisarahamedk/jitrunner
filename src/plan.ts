@@ -10,6 +10,8 @@ export interface Server {
 	created: number; // ms since epoch
 	/** Hetzner's status; "off" means the runner exited (job done, or nothing to do) and powered the server off. */
 	status?: string;
+	/** Takes more jobs after its first (REUSE_SECONDS), so having no runner of its own name is no sign it is done. */
+	reuse?: boolean;
 }
 
 export interface Runner {
@@ -27,7 +29,7 @@ export interface QueuedJob {
 }
 
 export type Action =
-	| { kind: 'create'; jobId: number; name: string; labels: string[]; serverType: string }
+	| { kind: 'create'; jobId: number; name: string; labels: string[]; serverType: string; reuse: boolean }
 	| { kind: 'delete'; serverId: number; name: string; runnerId?: number; reason: string };
 
 export function serverName(config: Config, jobId: number): string {
@@ -49,6 +51,20 @@ export function isAgentName(config: Config, name: string): boolean {
 }
 
 const lower = (labels: string[]) => labels.map((label) => label.toLowerCase());
+
+/**
+ * The job asks for nothing beyond self-hosted, LABEL and GitHub's defaults, so it may share a server with other such
+ * jobs. A job asking for anything else (`ephemeral`, a size) always gets a server of its own.
+ */
+export function isPlain(config: Config, labels: string[]): boolean {
+	const plain = new Set(['self-hosted', 'linux', 'x64', 'arm64', config.label.toLowerCase()]);
+	return lower(labels).every((label) => plain.has(label));
+}
+
+/** The labels a reused server offers when it asks for its next job. */
+export function plainLabels(config: Config, arch: 'X64' | 'ARM64'): string[] {
+	return ['self-hosted', 'Linux', arch, config.label];
+}
 
 /** The job asked for jitrunner: its runs-on includes the configured label. */
 export function wantsJit(config: Config, labels: string[]): boolean {
@@ -94,6 +110,11 @@ export function cleanup(config: Config, now: number, servers: Server[], runners:
 		if (age > config.maxAgeSeconds) remove('older than MAX_AGE_SECONDS');
 		else if (server.status === 'off') remove('powered off: its runner exited');
 		else if (age <= config.bootGraceSeconds) continue;
+		// A reused server runs later jobs under other runner names and powers itself off when its time is up (and is
+		// then deleted above). One still up half an hour past that is stuck in a job: Hetzner bills it all the same.
+		else if (server.reuse) {
+			if (age > config.reuseSeconds + 1800) remove('reused server still up 30 minutes past REUSE_SECONDS');
+		}
 		// An ephemeral runner removes itself when its job ends, so no runner after boot means done (or never started).
 		else if (!runner) remove('no runner: job finished or the runner never registered');
 		else if (runner.status === 'offline') remove('runner offline');
@@ -143,6 +164,7 @@ export function provision(
 			name,
 			labels: runnerLabels(job.labels, arch),
 			serverType: serverTypeFor(config, job.labels),
+			reuse: config.reuseSeconds > 0 && isPlain(config, job.labels),
 		});
 		names.add(name);
 		count += 1;

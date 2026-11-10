@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { createHmac, createPublicKey, generateKeyPairSync, verify } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { bootScript } from '../src/cloud-init.ts';
@@ -55,5 +56,24 @@ describe('bootScript', () => {
 		const script = bootScript("abc'def", 300);
 		expect(script).toContain(`--jitconfig 'abc'\\''def'`);
 		expect(script.startsWith('#!/bin/bash\n')).toBe(true);
+	});
+
+	it('asks for more jobs until the reuse time is up, then powers off', () => {
+		const script = bootScript('abc', 300, {
+			claimUrl: 'https://jit.example/agent/claim',
+			authorization: 'server jit-1:ff',
+			server: 'jit-1',
+			labels: ['self-hosted', 'Linux', 'X64', 'jit'],
+			arch: 'X64',
+			untilSeconds: 2520,
+		});
+		expect(script).toContain('-lt 2520 ]');
+		expect(script).toContain(`-H 'Authorization: server jit-1:ff'`);
+		expect(script.trimEnd().endsWith('poweroff')).toBe(true);
+		execFileSync('bash', ['-n'], { input: script });
+	});
+
+	it('runs one job and powers off without reuse', () => {
+		expect(bootScript('abc', 300)).not.toContain('/agent/claim');
 	});
 });

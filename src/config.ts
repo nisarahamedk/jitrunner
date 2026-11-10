@@ -17,6 +17,7 @@ export interface Env {
 	LABEL: string;
 	NAME_PREFIX: string;
 	SERVER_TYPE: string;
+	SERVER_TYPE_BY_LABEL?: string;
 	LOCATION: string;
 	IMAGE: string;
 	MAX_SERVERS: string;
@@ -34,6 +35,11 @@ export interface Config {
 	/** Hetzner server names and runner names start with `${prefix}-`. */
 	prefix: string;
 	serverType: string;
+	/**
+	 * Server types for jobs asking for a label, first match wins: "ephemeral=cx23" puts short jobs on a smaller
+	 * server. Every type must have SERVER_TYPE's architecture.
+	 */
+	serverTypeByLabel: [label: string, serverType: string][];
 	/** Tried in order; the next one is used when Hetzner has no room for SERVER_TYPE. */
 	locations: string[];
 	/** A Hetzner image name (ubuntu-24.04) or a snapshot id from scripts/build-image.ts. */
@@ -70,6 +76,15 @@ export function readConfig(env: Env): Config {
 		label: env.LABEL,
 		prefix: env.NAME_PREFIX,
 		serverType: env.SERVER_TYPE,
+		serverTypeByLabel: (env.SERVER_TYPE_BY_LABEL ?? '')
+			.split(',')
+			.map((pair) => pair.trim())
+			.filter(Boolean)
+			.map((pair) => {
+				const [label, serverType] = pair.split('=').map((part) => part.trim());
+				if (!label || !serverType) throw new Error(`SERVER_TYPE_BY_LABEL entries are label=type, got "${pair}"`);
+				return [label.toLowerCase(), serverType] as [string, string];
+			}),
 		locations: env.LOCATION.split(',')
 			.map((location) => location.trim())
 			.filter(Boolean),

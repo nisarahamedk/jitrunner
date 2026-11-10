@@ -12,6 +12,7 @@
 		"NAME_PREFIX": "jit",
 		// The cheapest x86 type when written (2 vCPU, 4 GB). cax11 is Arm.
 		"SERVER_TYPE": "cx23",
+		// "SERVER_TYPE_BY_LABEL": "ephemeral=cx23", // a type per job label, first match wins
 		"LOCATION": "fsn1,nbg1,hel1",
 		// Stock Ubuntu installs the runner on every boot (about a minute); a snapshot from `pnpm build-image` skips that.
 		"IMAGE": "ubuntu-24.04",

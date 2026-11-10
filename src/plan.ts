@@ -27,7 +27,7 @@ export interface QueuedJob {
 }
 
 export type Action =
-	| { kind: 'create'; jobId: number; name: string; labels: string[] }
+	| { kind: 'create'; jobId: number; name: string; labels: string[]; serverType: string }
 	| { kind: 'delete'; serverId: number; name: string; runnerId?: number; reason: string };
 
 export function serverName(config: Config, jobId: number): string {
@@ -137,7 +137,13 @@ export function provision(
 			}
 		}
 		if (count >= config.maxServers) break;
-		actions.push({ kind: 'create', jobId: job.id, name, labels: runnerLabels(job.labels, arch) });
+		actions.push({
+			kind: 'create',
+			jobId: job.id,
+			name,
+			labels: runnerLabels(job.labels, arch),
+			serverType: serverTypeFor(config, job.labels),
+		});
 		names.add(name);
 		count += 1;
 	}
@@ -170,6 +176,12 @@ export function claimable(
 				!runnerNames.has(agentRunnerName(config, job.id)),
 		)
 		.slice(0, Math.max(0, slots));
+}
+
+/** The first SERVER_TYPE_BY_LABEL entry whose label the job asks for, else SERVER_TYPE. */
+export function serverTypeFor(config: Config, jobLabels: string[]): string {
+	const asked = new Set(lower(jobLabels));
+	return config.serverTypeByLabel.find(([label]) => asked.has(label))?.[1] ?? config.serverType;
 }
 
 /** Hetzner server types starting with "cax" are Arm (Ampere); the rest are x86. */

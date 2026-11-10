@@ -6,6 +6,7 @@ const config: Config = {
 	label: 'jit',
 	prefix: 'jit',
 	serverType: 'cx23',
+	serverTypeByLabel: [],
 	locations: ['fsn1'],
 	image: 'ubuntu-24.04',
 	maxServers: 2,
@@ -36,7 +37,13 @@ describe('provision', () => {
 
 	it('creates a server at once when none of your machines is free', () => {
 		expect(provision(config, now, [job(7, 0)], [], [laptop(true)], 'X64')).toEqual([
-			{ kind: 'create', jobId: 7, name: 'jit-7', labels: ['self-hosted', 'Linux', 'X64', 'jit'] },
+			{
+				kind: 'create',
+				jobId: 7,
+				name: 'jit-7',
+				labels: ['self-hosted', 'Linux', 'X64', 'jit'],
+				serverType: 'cx23',
+			},
 		]);
 	});
 
@@ -67,6 +74,20 @@ describe('provision', () => {
 		const servers: Server[] = [{ id: 1, name: 'jit-1', created: ago(10) }];
 		const actions = provision(config, now, [job(3, 40), job(2, 50)], servers, [], 'X64');
 		expect(actions.map((action) => action.kind === 'create' && action.jobId)).toEqual([2]);
+	});
+});
+
+describe('server types', () => {
+	const typed: Config = { ...config, serverType: 'cx33', serverTypeByLabel: [['ephemeral', 'cx23']] };
+
+	it('gives a job asking for a mapped label its own type', () => {
+		const [action] = provision(typed, now, [job(7, 0, ['self-hosted', 'jit', 'Ephemeral'])], [], [], 'X64');
+		expect(action?.kind === 'create' && action.serverType).toBe('cx23');
+	});
+
+	it('gives every other job SERVER_TYPE', () => {
+		const [action] = provision(typed, now, [job(7, 0)], [], [], 'X64');
+		expect(action?.kind === 'create' && action.serverType).toBe('cx33');
 	});
 });
 

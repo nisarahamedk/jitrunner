@@ -50,7 +50,7 @@ async function create(
 	}
 	const result = await hetzner.create({
 		name: action.name,
-		serverType: config.serverType,
+		serverType: action.serverType,
 		locations: config.locations,
 		image: config.image,
 		userData: bootScript(jitConfig, config.idleSeconds),
@@ -142,13 +142,31 @@ async function markAlive(env: Env, agent: string): Promise<void> {
 	await env.AGENTS.put(ALIVE_KEY, `${Date.now()} ${agent}`, { expirationTtl: AGENT_ALIVE_TTL });
 }
 
+// The repos jitrunner may serve, kept for five minutes: agents poll every few seconds, and an idle poll should cost
+// as few GitHub calls as possible (the installation shares one 5,000-an-hour limit with everything else).
+let installed: { until: number; repos: { installation: Installation; repo: Repo }[] } | undefined;
+
+async function installedRepos(env: Env, config: Config): Promise<{ installation: Installation; repo: Repo }[]> {
+	if (installed && installed.until > Date.now()) return installed.repos;
+	const repos: { installation: Installation; repo: Repo }[] = [];
+	for (const id of await Installation.ids(env.GITHUB_APP_ID, env.GITHUB_APP_PRIVATE_KEY)) {
+		const installation = await Installation.open(env.GITHUB_APP_ID, env.GITHUB_APP_PRIVATE_KEY, id);
+		for (const repo of await installation.repos()) if (allowed(config, repo)) repos.push({ installation, repo });
+	}
+	installed = { until: Date.now() + 5 * 60_000, repos };
+	return repos;
+}
+
 /** Hands an agent JIT configs for up to `slots` queued jobs it can run, oldest first. */
 async function claim(env: Env, request: ClaimRequest): Promise<Claim[]> {
 	const config = readConfig(env);
 	await markAlive(env, request.agent);
 	const claims: Claim[] = [];
-	for (const { installation, repo, runners } of await openRepos(env, config)) {
+	for (const { installation, repo } of await installedRepos(env, config)) {
 		const jobs = await installation.queuedJobs(repo);
+		// Nothing waiting (the usual idle poll): no need to list the runners.
+		if (claimable(config, jobs, [], request.labels, request.slots - claims.length).length === 0) continue;
+		const runners = await installation.runners(repo);
 		for (const job of claimable(config, jobs, runners, request.labels, request.slots - claims.length)) {
 			const runner = agentRunnerName(config, job.id);
 			try {

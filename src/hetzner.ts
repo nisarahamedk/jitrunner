@@ -129,14 +129,19 @@ export class Hetzner {
 	}
 
 	/** Deletes the server of a finished job, unless it is a reused one, which goes on to its next job. */
-	async deleteByName(name: string): Promise<void> {
+	async deleteByName(name: string): Promise<boolean> {
 		const { servers } = await this.call<{ servers: { id: number; labels: Record<string, string> }[] }>(
 			'GET',
 			`/servers?name=${encodeURIComponent(name)}`,
 		);
+		let deleted = false;
 		for (const server of servers) {
-			if (server.labels.jitrunner === this.prefix && server.labels.reuse !== 'yes') await this.delete(server.id);
+			if (server.labels.jitrunner === this.prefix && server.labels.reuse !== 'yes') {
+				await this.delete(server.id);
+				deleted = true;
+			}
 		}
+		return deleted;
 	}
 
 	/**

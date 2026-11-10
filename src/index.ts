@@ -88,18 +88,18 @@ async function onWebhook(env: Env, event: WorkflowJobEvent): Promise<void> {
 
 	if (event.action === 'completed') {
 		if (job.runner_name && isJitName(config, job.runner_name)) {
-			await hetzner.deleteByName(job.runner_name);
-			console.log(`deleted ${job.runner_name}: job ${job.id} completed`);
+			const deleted = await hetzner.deleteByName(job.runner_name);
+			console.log(`${deleted ? 'deleted' : 'kept (reused)'} ${job.runner_name}: job ${job.id} completed`);
 		}
 		return;
 	}
 	if (event.action !== 'queued') return;
 
 	const installation = await Installation.open(env.GITHUB_APP_ID, env.GITHUB_APP_PRIVATE_KEY, event.installation.id);
-	const alive = await agentsAlive(env);
+	const alive = (await agentsAlive(env)) || reusedServerUp(await hetzner.servers());
 	if (alive) {
-		// Give your agents (which poll every few seconds) the first chance; a claimed job is no longer queued, or
-		// has an agent runner, which provision() below skips.
+		// Give your agents and reused servers (which poll every few seconds) the first chance; a claimed job is no
+		// longer queued, or has an agent runner, which provision() below skips.
 		await new Promise((resolve) => setTimeout(resolve, config.agentGraceSeconds * 1000));
 		if ((await installation.jobStatus(repo, job.id)) !== 'queued') return;
 	}
@@ -143,6 +143,14 @@ interface Claim {
 // minutes keeps KV writes well inside the free plan's 1,000 a day.
 const ALIVE_KEY = 'agent-alive';
 const AGENT_ALIVE_TTL = 300;
+
+/**
+ * A reused server may be about to ask for work: one that just finished a job has not yet refreshed the agent sign of
+ * life, so a job queued that moment would otherwise get a server of its own at once.
+ */
+function reusedServerUp(servers: Server[]): boolean {
+	return servers.some((server) => server.reuse && server.status === 'running');
+}
 
 async function agentsAlive(env: Env): Promise<boolean> {
 	if (!(env.AGENT_TOKEN_SHA256 || readConfig(env).reuseSeconds > 0) || !env.AGENTS) return false;
@@ -204,7 +212,7 @@ async function reconcile(env: Env): Promise<void> {
 	const now = Date.now();
 
 	const repos = await openRepos(env, config);
-	const alive = await agentsAlive(env);
+	const alive = (await agentsAlive(env)) || reusedServerUp(servers);
 	const allRunners = repos.flatMap((entry) => entry.runners);
 
 	// Delete first, so finished servers free their place under MAX_SERVERS.

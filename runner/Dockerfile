@@ -6,6 +6,13 @@
 # Add your own tools in a Dockerfile that starts FROM this image, and point JITRUNNER_IMAGE at it.
 FROM ubuntu:24.04
 
+# An Ubuntu mirror to use instead of archive.ubuntu.com, e.g. http://mirrors.edge.kernel.org/ubuntu. The main archive
+# can crawl at a few KB/s over IPv4. The setting stays in the image, so jobs' own apt-get installs use it too.
+ARG UBUNTU_MIRROR=
+RUN if [ -n "$UBUNTU_MIRROR" ]; then \
+		sed -i "s#http://archive.ubuntu.com/ubuntu#$UBUNTU_MIRROR#g" /etc/apt/sources.list.d/ubuntu.sources; \
+	fi
+
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
 	&& apt-get install -y --no-install-recommends sudo curl git jq unzip zstd build-essential ca-certificates \
@@ -25,6 +32,10 @@ RUN arch=$(dpkg --print-architecture | sed 's/amd64/x64/') \
 	&& ./bin/installdependencies.sh \
 	&& rm -rf /var/lib/apt/lists/* \
 	&& chown -R runner:runner /opt/actions-runner
+
+# What jobs download and can reuse: tool versions (actions/setup-node and friends), and the home caches (Playwright's
+# browsers, pnpm's store). The agent mounts a volume on each, shared by its jobs; created here so the runner owns them.
+RUN install -d -o runner -g runner /opt/actions-runner/_work/_tool /home/runner/.cache /home/runner/.local/share/pnpm
 
 # Plain COPY and chmod: the legacy builder (Debian and Ubuntu docker.io without buildx) has no COPY --chmod.
 COPY entrypoint.sh /usr/local/bin/jitrunner-entrypoint

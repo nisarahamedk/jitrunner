@@ -6,7 +6,7 @@
 # It makes this machine's agent token, keeps it in /etc/jitrunner/agent.env (readable by root only) and prints the
 # token's SHA-256 for the Worker's AGENT_TOKEN_SHA256, so the token itself never leaves the machine.
 #
-# Optional: JITRUNNER_SLOTS, JITRUNNER_AGENT_NAME, JITRUNNER_LABELS, JITRUNNER_DOCKER_ARGS (see agent.mjs), and
+# Optional: JITRUNNER_UBUNTU_MIRROR (a faster Ubuntu mirror for the job image), JITRUNNER_SLOTS, JITRUNNER_AGENT_NAME, JITRUNNER_LABELS, JITRUNNER_DOCKER_ARGS (see agent.mjs), and
 # JITRUNNER_REPO / JITRUNNER_REF to install from a fork or branch. Run it again to update; it keeps the token.
 set -euo pipefail
 
@@ -36,7 +36,7 @@ if [ -d /opt/jitrunner/.git ]; then
 else
 	git clone -q --branch "$ref" "$repo" /opt/jitrunner
 fi
-docker build -t jitrunner-runner /opt/jitrunner/runner
+docker build -t jitrunner-runner --build-arg UBUNTU_MIRROR="${JITRUNNER_UBUNTU_MIRROR:-}" /opt/jitrunner/runner
 
 install -d -m 0700 /etc/jitrunner
 umask 077
@@ -45,7 +45,7 @@ token=$(sed -n 's/^JITRUNNER_AGENT_TOKEN=//p' /etc/jitrunner/agent.env 2>/dev/nu
 {
 	echo "JITRUNNER_URL=$JITRUNNER_URL"
 	echo "JITRUNNER_AGENT_TOKEN=$token"
-	for name in JITRUNNER_SLOTS JITRUNNER_AGENT_NAME JITRUNNER_LABELS JITRUNNER_DOCKER_ARGS; do
+	for name in JITRUNNER_SLOTS JITRUNNER_AGENT_NAME JITRUNNER_LABELS JITRUNNER_DOCKER_ARGS JITRUNNER_CACHE; do
 		if [ -n "${!name:-}" ]; then echo "$name=${!name}"; fi
 	done
 } > /etc/jitrunner/agent.env

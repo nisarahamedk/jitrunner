@@ -35,7 +35,8 @@ RUN arch=$(dpkg --print-architecture | sed 's/amd64/x64/') \
 
 # What jobs download and can reuse: tool versions (actions/setup-node and friends), and the home caches (Playwright's
 # browsers, pnpm's store). The agent mounts a volume on each, shared by its jobs; created here so the runner owns them.
-RUN install -d -o runner -g runner /opt/actions-runner/_work/_tool /home/runner/.cache /home/runner/.local/share/pnpm
+RUN mkdir -p /opt/actions-runner/_work/_tool /home/runner/.cache /home/runner/.local/share/pnpm \
+	&& chown -R runner:runner /opt/actions-runner/_work /home/runner/.cache /home/runner/.local
 
 # Plain COPY and chmod: the legacy builder (Debian and Ubuntu docker.io without buildx) has no COPY --chmod.
 COPY entrypoint.sh /usr/local/bin/jitrunner-entrypoint

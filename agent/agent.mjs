@@ -16,6 +16,9 @@
 //                            `ephemeral`: jobs asking for it need a machine that is wiped, and this one is not.
 //   JITRUNNER_IMAGE          the job container image (default jitrunner-runner)
 //   JITRUNNER_DOCKER_ARGS    extra `docker run` arguments, e.g. "--cpus 2 --memory 6g"
+//   JITRUNNER_CACHE          off: no shared caches. By default every job container mounts three volumes that outlive
+//                            it: tool versions (_work/_tool), ~/.cache (Playwright's browsers) and pnpm's store, so a
+//                            job downloads only what changed. The checkout, the job's files and secrets stay per job.
 //   JITRUNNER_POLL_SECONDS   default 5
 //   JITRUNNER_MAX_JOB_SECONDS  a container is stopped at this age (default 21600, GitHub's own job limit)
 //   JITRUNNER_IDLE_SECONDS   a container whose job went to another runner gives up after this long (default 300)
@@ -42,6 +45,14 @@ const pollMs = Number(env.JITRUNNER_POLL_SECONDS || 5) * 1000;
 const maxJobMs = Number(env.JITRUNNER_MAX_JOB_SECONDS || 21600) * 1000;
 const idleSeconds = Number(env.JITRUNNER_IDLE_SECONDS || 300);
 const tag = `jitrunner.agent=${agent}`;
+const cacheMounts =
+	env.JITRUNNER_CACHE === 'off'
+		? []
+		: [
+				['jitrunner-tool', '/opt/actions-runner/_work/_tool'],
+				['jitrunner-cache', '/home/runner/.cache'],
+				['jitrunner-pnpm', '/home/runner/.local/share/pnpm'],
+			].flatMap(([volume, path]) => ['--volume', `${volume}:${path}`]);
 
 if (labels.some((label) => label.toLowerCase() === 'ephemeral')) {
 	console.error('Refusing to offer the "ephemeral" label: this machine is not wiped between jobs.');
@@ -97,6 +108,7 @@ async function start({ runner, jitConfig, repo, jobId }) {
 			'JIT_CONFIG',
 			'--env',
 			`JITRUNNER_IDLE_SECONDS=${idleSeconds}`,
+			...cacheMounts,
 			...dockerArgs,
 			image,
 		],

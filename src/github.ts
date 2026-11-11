@@ -211,6 +211,23 @@ export class Installation {
 		return jobs;
 	}
 
+	/** A file's text on the repo's default branch, or null when the repo has no such file. */
+	async file(repo: Repo, path: string): Promise<string | null> {
+		const response = await fetch(`${API}/repos/${repo.owner}/${repo.name}/contents/${path}`, {
+			headers: {
+				'Accept': 'application/vnd.github.raw',
+				'Authorization': `Bearer ${this.token}`,
+				'User-Agent': USER_AGENT,
+				'X-GitHub-Api-Version': '2022-11-28',
+			},
+		});
+		if (response.status === 404) return null;
+		if (!response.ok) {
+			throw new GitHubError(response.status, `GitHub GET ${path} in ${repo.owner}/${repo.name}: ${response.status}`);
+		}
+		return response.text();
+	}
+
 	/** A just-in-time config for one ephemeral runner: it registers itself, runs one job, and is removed. */
 	async jitConfig(repo: Repo, name: string, labels: string[]): Promise<string> {
 		const { encoded_jit_config: config } = await call<{ encoded_jit_config: string }>(

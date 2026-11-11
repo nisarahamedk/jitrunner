@@ -10,8 +10,6 @@
 # keeps the token. It ends with a self-test: a job container must be able to write its work folder and the caches.
 #
 # Optional:
-#   JITRUNNER_DOCKERFILE     a Dockerfile starting FROM jitrunner-runner with your project's tools; built as
-#                            JITRUNNER_IMAGE (default jitrunner-job) and used for every job
 #   JITRUNNER_NO_SUSPEND=1   Linux: never suspend, lid closed included (for laptops; applies after a reboot).
 #                            macOS always keeps the machine awake while it is on power (caffeinate -s); a closed lid
 #                            still sleeps it unless a display is connected.
@@ -23,11 +21,6 @@ set -euo pipefail
 : "${JITRUNNER_URL:?Set JITRUNNER_URL to your Worker}"
 repo=${JITRUNNER_REPO:-https://github.com/nisarahamedk/jitrunner}
 ref=${JITRUNNER_REF:-main}
-if [ -n "${JITRUNNER_DOCKERFILE:-}" ]; then
-	[ -f "$JITRUNNER_DOCKERFILE" ] || { echo "JITRUNNER_DOCKERFILE: no such file: $JITRUNNER_DOCKERFILE" >&2; exit 1; }
-	JITRUNNER_DOCKERFILE=$(cd "$(dirname "$JITRUNNER_DOCKERFILE")" && pwd)/$(basename "$JITRUNNER_DOCKERFILE")
-	JITRUNNER_IMAGE=${JITRUNNER_IMAGE:-jitrunner-job}
-fi
 image=${JITRUNNER_IMAGE:-jitrunner-runner}
 
 # Clones or updates jitrunner into $1.
@@ -40,12 +33,9 @@ fetch_code() {
 	fi
 }
 
-# Builds the base job image from $1/runner, then the project's own image on top of it if there is one.
+# Builds the base job image from $1/runner. A repo's own image (.jitrunner/Dockerfile) is built by the agent itself.
 build_images() {
 	docker build -t jitrunner-runner --build-arg UBUNTU_MIRROR="${JITRUNNER_UBUNTU_MIRROR:-}" "$1/runner"
-	if [ -n "${JITRUNNER_DOCKERFILE:-}" ]; then
-		docker build -t "$image" - < "$JITRUNNER_DOCKERFILE"
-	fi
 }
 
 # A job container must be able to write its work folder and each cache volume the agent mounts (agent.mjs).

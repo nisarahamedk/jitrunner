@@ -136,6 +136,8 @@ interface Claim {
 	jitConfig: string;
 	/** The job's labels, so the agent can run `ephemeral` jobs without shared caches. */
 	labels: string[];
+	/** The repo's job image (REPO_DOCKERFILE on its default branch) for agents to build and run the job in, if any. */
+	dockerfile: string | null;
 	repo: string;
 	jobId: number;
 }
@@ -181,8 +183,25 @@ async function installedRepos(env: Env, config: Config): Promise<{ installation:
 	return repos;
 }
 
+/** Where a repo keeps its job image for agents: a Dockerfile starting FROM jitrunner-runner. */
+const REPO_DOCKERFILE = '.jitrunner/Dockerfile';
+
+/**
+ * The repo's job image, read from its default branch only, so a pull request can't change what gets built on your
+ * machines. Without read access to the repo's contents (the GitHub App's "Contents: read" permission), there is none.
+ */
+async function repoDockerfile(installation: Installation, repo: Repo): Promise<string | null> {
+	try {
+		return await installation.file(repo, REPO_DOCKERFILE);
+	} catch (error) {
+		if (!(error instanceof GitHubError && error.status === 403)) throw error;
+		console.log(`no access to ${REPO_DOCKERFILE} in ${repo.owner}/${repo.name}: grant the app Contents: read`);
+		return null;
+	}
+}
+
 /** Hands an agent JIT configs for up to `slots` queued jobs it can run, oldest first. */
-async function claim(env: Env, request: ClaimRequest): Promise<Claim[]> {
+async function claim(env: Env, request: ClaimRequest, images: boolean): Promise<Claim[]> {
 	const config = readConfig(env);
 	await markAlive(env, request.agent);
 	const claims: Claim[] = [];
@@ -195,7 +214,15 @@ async function claim(env: Env, request: ClaimRequest): Promise<Claim[]> {
 			const runner = agentRunnerName(config, job.id);
 			try {
 				const jitConfig = await installation.jitConfig(repo, runner, runnerLabels(job.labels, request.arch));
-				claims.push({ runner, jitConfig, repo: `${repo.owner}/${repo.name}`, jobId: job.id, labels: job.labels });
+				const dockerfile = images ? await repoDockerfile(installation, repo) : null;
+				claims.push({
+					runner,
+					jitConfig,
+					repo: `${repo.owner}/${repo.name}`,
+					jobId: job.id,
+					labels: job.labels,
+					dockerfile,
+				});
 				console.log(`agent ${request.agent} claimed job ${job.id} in ${repo.owner}/${repo.name}`);
 			} catch (error) {
 				// 409: another agent claimed it a moment ago.
@@ -309,7 +336,8 @@ async function agentClaim(request: Request, env: Env): Promise<Response> {
 		return new Response('Expected {agent, labels, arch, slots}\n', { status: 400 });
 	}
 	if (body.slots < 1) return Response.json({ claims: [] });
-	return Response.json({ claims: await claim(env, body) });
+	// Reused servers run jobs straight on the server, with no Docker to build an image in.
+	return Response.json({ claims: await claim(env, body, !server) });
 }
 
 export default {

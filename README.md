@@ -54,7 +54,8 @@ You need a Cloudflare account, a Hetzner Cloud project, and about 15 minutes.
 3. **Create a GitHub App** (Settings → Developer settings → GitHub Apps → New GitHub App):
    - Webhook URL: `https://jitrunner.<you>.workers.dev/webhook`. Set a webhook secret (`openssl rand -hex 32`).
    - Repository permissions: **Administration: Read and write** (to create and remove runners) and **Actions: Read**
-     (to find queued jobs).
+     (to find queued jobs). Add **Contents: Read** if your agents should build repos' own job images
+     (`.jitrunner/Dockerfile`, below).
    - Subscribe to events: **Workflow job**.
    - "Only on this account". Create it, note the App ID, and generate a private key (.pem).
    - Install the app on the repositories that should use jitrunner.
@@ -104,9 +105,8 @@ or switched-off agent stops asking for work, and jobs stop waiting for it within
    ```
    It makes the machine's own agent token, keeps it there (readable by its owner only), runs a self-test and prints
    the token's SHA-256. On macOS it needs Homebrew, installs OrbStack for Docker, runs the agent as a launchd agent
-   while that user is logged in, and keeps the Mac awake on power. `JITRUNNER_DOCKERFILE=path/to/Dockerfile` builds
-   your project's image (`FROM jitrunner-runner`) and uses it for every job; `JITRUNNER_NO_SUSPEND=1` stops a Linux
-   laptop from suspending, lid closed included.
+   while that user is logged in, and keeps the Mac awake on power. `JITRUNNER_NO_SUSPEND=1` stops a Linux laptop from
+   suspending, lid closed included. Nothing in it is specific to your repos.
 3. Give the Worker that hash. With several machines, list one hash per machine, comma separated, so you can drop one
    without touching the others:
    ```sh
@@ -118,6 +118,22 @@ or switched-off agent stops asking for work, and jobs stop waiting for it within
 The job container has passwordless `sudo`, so steps like `sudo apt-get install` and
 `playwright install --with-deps` work. It also gets 2 GB of shared memory for browsers. Jobs that need Docker
 themselves (service containers, `docker build`) are not supported in the container.
+
+**Your repo's job image.** To skip slow setup steps on every run (system packages, say), add `.jitrunner/Dockerfile`
+to the repo, starting `FROM jitrunner-runner`:
+
+```dockerfile
+FROM jitrunner-runner
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
+USER runner
+```
+
+When an agent claims one of the repo's jobs, the Worker sends this file along, and the agent builds it (once per
+change, tagged by its content) and runs the job in it. It is read from the default branch only, so a pull request
+can't change what is built on your machines; a change takes effect once merged. The GitHub App needs the
+**Contents: read** permission for this. Repos without the file use the base image (or `JITRUNNER_IMAGE`). Hetzner
+servers ignore the file: bake the same setup into your snapshot (`IMAGE`).
 
 By default agents don't offer the `ephemeral` label, so jobs on `[self-hosted, jit, ephemeral]` (say, ones holding
 production credentials) get a fresh server. `JITRUNNER_EPHEMERAL=on` lets an agent take them too, in a container with

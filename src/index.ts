@@ -10,6 +10,7 @@ import { GitHubError, Installation, type Repo, safeEqual, verifyWebhook } from '
 import { Hetzner } from './hetzner.ts';
 import {
 	type JobRecord,
+	lastClaim,
 	listAgents,
 	loadJobs,
 	machinesNow,
@@ -35,6 +36,7 @@ import {
 	type Action,
 	type Runner,
 	type Server,
+	wantsJit,
 } from './plan.ts';
 
 interface WorkflowJobEvent {
@@ -277,6 +279,9 @@ async function claim(env: Env, request: ClaimRequest, images: boolean): Promise<
 	return claims;
 }
 
+/** How long a claimed job's runner may stay offline before the claim counts as lost. */
+const LOST_CLAIM_MS = 5 * 60_000;
+
 async function reconcile(env: Env): Promise<void> {
 	const config = readConfig(env);
 	const hetzner = new Hetzner(env.HCLOUD_TOKEN, config.prefix);
@@ -315,7 +320,17 @@ async function reconcile(env: Env): Promise<void> {
 		const queuedIds = new Set(jobs.map((job) => job.id));
 		for (const runner of runners) {
 			const jobId = isAgentName(config, runner.name) ? Number(runner.name.split('-').pop()) : undefined;
-			if (jobId !== undefined && runner.status === 'offline' && !queuedIds.has(jobId)) {
+			if (jobId === undefined || runner.status !== 'offline') continue;
+			if (!queuedIds.has(jobId)) {
+				await installation.deleteRunner(repo, runner.id);
+				continue;
+			}
+			// Still queued with its runner offline: the machine that claimed it lost the job (its container died, or
+			// the agent restarted). The runner's name is the claim lock, so remove it and let the job be claimed again.
+			// A healthy claim connects well within this, image build included.
+			const claimed = env.AGENTS ? await lastClaim(env.AGENTS, jobId, now) : undefined;
+			if (claimed !== undefined && now - claimed > LOST_CLAIM_MS) {
+				console.log(`job ${jobId}: its runner ${runner.name} never connected, freeing the job`);
 				await installation.deleteRunner(repo, runner.id);
 			}
 		}
@@ -355,8 +370,21 @@ async function claimingServer(env: Env, config: Config, authorization: string): 
 async function runningNow(env: Env, config: Config, records: JobRecord[]): Promise<Now> {
 	const servers = await new Hetzner(env.HCLOUD_TOKEN, config.prefix).servers();
 	const runners: Now['runners'] = [];
+	const waiting: Now['waiting'] = [];
 	for (const { installation, repo } of await installedRepos(env, config)) {
-		for (const runner of await installation.runners(repo)) {
+		const repoRunners = await installation.runners(repo);
+		for (const job of await installation.queuedJobs(repo)) {
+			if (!wantsJit(config, job.labels)) continue;
+			const runner = repoRunners.find((each) => each.name === agentRunnerName(config, job.id));
+			waiting.push({
+				minutes: Math.round((Date.now() - job.created) / 60_000),
+				labels: job.labels,
+				claim: !runner
+					? 'nobody yet'
+					: `${runnerHost(runner.name, config.prefix, records)}${runner.status === 'offline' ? ', not connected' : ''}`,
+			});
+		}
+		for (const runner of repoRunners) {
 			if (!isJitName(config, runner.name) && !isAgentName(config, runner.name)) continue;
 			runners.push({
 				name: runner.name,
@@ -368,6 +396,7 @@ async function runningNow(env: Env, config: Config, records: JobRecord[]): Promi
 	const agents = env.AGENTS ? await listAgents(env.AGENTS) : [];
 	return {
 		machines: machinesNow(agents, runners, Date.now()),
+		waiting: waiting.sort((a, b) => b.minutes - a.minutes),
 		servers: servers.map((server) => ({
 			name: server.name,
 			status: server.status ?? 'unknown',

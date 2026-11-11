@@ -89,6 +89,18 @@ export async function recordJob(kv: KVNamespace | undefined, record: JobRecord):
 	await kv.put(key, '', { metadata: record, expirationTtl: KEEP_SECONDS });
 }
 
+/** When a job was last handed to one of your machines or a reused server, if in the last two UTC days. */
+export async function lastClaim(kv: KVNamespace, jobId: number, now = Date.now()): Promise<number | undefined> {
+	let last: number | undefined;
+	for (const at of [now, now - 86_400_000]) {
+		const { keys } = await kv.list<JobRecord>({ prefix: `job:${utcDay(at)}:${jobId}:` });
+		for (const key of keys) {
+			if (key.metadata && key.metadata.kind !== 'server') last = Math.max(last ?? 0, key.metadata.at);
+		}
+	}
+	return last;
+}
+
 /** Every record from the last `days` days (plus one, so local days that start before UTC midnight are whole). */
 export async function loadJobs(kv: KVNamespace, days: number, now = Date.now()): Promise<JobRecord[]> {
 	const records: JobRecord[] = [];
@@ -148,6 +160,8 @@ export interface Now {
 	runners: { name: string; where: string; state: 'busy' | 'idle' | 'offline' }[];
 	/** Your machines: online or not, and how many of their slots run a job now. */
 	machines: Machine[];
+	/** Jobs waiting for a runner, oldest first: how long, what they ask for, and who claimed them if anyone. */
+	waiting: { minutes: number; labels: string[]; claim: string }[];
 }
 
 export interface Machine {
@@ -344,9 +358,28 @@ ${table(
 </table></div>`
 		: ''
 }`;
+	const waitingHtml = !now
+		? ''
+		: `<h2>Waiting</h2>
+<div class="wrap"><table>
+${table([['Waiting', 'Needs', 'Claimed by']], 'th')}
+${
+	now.waiting.length
+		? table(
+				now.waiting.map((job) => [
+					paint(`${job.minutes} min`, job.minutes >= 10 ? 'new' : 'zero'),
+					escape(job.labels.filter((label) => !['self-hosted', 'jit'].includes(label)).join(', ') || 'plain'),
+					escape(job.claim),
+				]),
+				'td',
+			)
+		: '<tr><td colspan="3">Nothing waiting</td></tr>'
+}
+</table></div>`;
 	const nowHtml = !now
 		? '<p>Could not read what is running.</p>'
 		: `${machinesHtml}
+${waitingHtml}
 <h2>Running now</h2>
 <div class="wrap"><table>
 ${table([['Runner', 'Where', 'State']], 'th')}

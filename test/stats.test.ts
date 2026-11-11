@@ -84,6 +84,7 @@ describe('statsPage running now', () => {
 			servers: [{ name: 'jit-5', status: 'running', ageMinutes: 12, reuse: true }],
 			runners: [{ name: 'agent-jit-11', where: 'agent-mac', state: 'busy' }],
 			machines: [],
+			waiting: [],
 		});
 		expect(html).toContain('<td>agent-mac</td><td><span class="mine">busy</span></td>');
 		expect(html).toContain('<td>jit-5 (reuse)</td><td><span class="new">running</span></td><td>12 min</td>');
@@ -150,10 +151,24 @@ describe('machinesNow', () => {
 			{ name: 'agent-mac', online: true, seenMinutes: 1, running: 2, capacity: 4 },
 			{ name: 'agent-old', online: false, seenMinutes: 120, running: 0, capacity: undefined },
 		]);
-		const html = statsPage([], 'UTC', undefined, { machines, servers: [], runners: [] });
+		const html = statsPage([], 'UTC', undefined, { machines, servers: [], runners: [], waiting: [] });
 		expect(html).toContain(
 			'<td>agent-mac</td><td><span class="mine">● online</span></td><td>2 of 4 <span class="bar slots">',
 		);
 		expect(html).toContain('<td>agent-old</td><td><span class="zero">○ seen 2 h ago</span></td><td>0 of ?</td>');
+	});
+});
+
+describe('statsPage waiting', () => {
+	it('lists queued jobs with who claimed them', () => {
+		const html = statsPage([], 'UTC', undefined, {
+			machines: [],
+			servers: [],
+			runners: [],
+			waiting: [{ minutes: 12, labels: ['self-hosted', 'jit', 'ephemeral'], claim: 'agent-mac, not connected' }],
+		});
+		expect(html).toContain(
+			'<td><span class="new">12 min</span></td><td>ephemeral</td><td>agent-mac, not connected</td>',
+		);
 	});
 });

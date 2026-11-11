@@ -26,6 +26,7 @@
 		"AGENT_GRACE_SECONDS": "20",
 		// "REUSE_SECONDS": "2520", // a server takes more plain jobs until it has been up this long (needs the two below)
 		// "PUBLIC_URL": "https://jitrunner.you.workers.dev",
+		// "SWAP_GB": "4", // a swap file on every server, for memory peaks on small types
 	},
 	// Secrets (wrangler secret put): GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY, GITHUB_WEBHOOK_SECRET, HCLOUD_TOKEN,
 	// and AGENT_TOKEN_SHA256 if you run agents on your own machines (agent/install.sh prints it)

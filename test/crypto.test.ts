@@ -73,6 +73,13 @@ describe('bootScript', () => {
 		execFileSync('bash', ['-n'], { input: script });
 	});
 
+	it('adds a swap file when asked', () => {
+		const script = bootScript('abc', 300, undefined, 4);
+		expect(script).toContain('fallocate -l 4G /swapfile');
+		expect(bootScript('abc', 300)).not.toContain('swapfile');
+		execFileSync('bash', ['-n'], { input: script });
+	});
+
 	it('runs one job and powers off without reuse', () => {
 		expect(bootScript('abc', 300)).not.toContain('/agent/claim');
 	});

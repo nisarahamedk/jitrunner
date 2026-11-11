@@ -90,7 +90,7 @@ echo "jitrunner: reuse time is up"
  * Boots one ephemeral runner for one job (and, with reuse, more jobs after it), then powers off; jitrunner deletes
  * powered-off servers. The JIT config is single-use and only valid for this runner name.
  */
-export function bootScript(jitConfig: string, idleSeconds: number, reuse?: Reuse): string {
+export function bootScript(jitConfig: string, idleSeconds: number, reuse?: Reuse, swapGb = 0): string {
 	return `#!/bin/bash
 set -Eeuo pipefail
 # A failed setup powers off at once, so jitrunner deletes the server and makes a new one within a minute or two,
@@ -98,7 +98,13 @@ set -Eeuo pipefail
 trap 'echo "jitrunner: setup failed"; poweroff' ERR
 ${INSTALL_RUNNER}
 ${IDLE_WATCHDOG}
-install_runner
+${
+	swapGb > 0
+		? `# Swap, so a job that briefly needs more memory than the server has slows down instead of dying.
+fallocate -l ${swapGb}G /swapfile && chmod 600 /swapfile && mkswap /swapfile >/dev/null && swapon /swapfile
+`
+		: ''
+}install_runner
 cd /opt/actions-runner
 watch_idle ${idleSeconds} /opt/actions-runner &
 watcher=$!

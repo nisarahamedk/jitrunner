@@ -66,7 +66,7 @@ async function create(
 		serverType: action.serverType,
 		locations: config.locations,
 		image: config.image,
-		userData: bootScript(jitConfig, config.idleSeconds, reuse),
+		userData: bootScript(jitConfig, config.idleSeconds, reuse, config.swapGb),
 		sshKey: await hetzner.lockoutKey(),
 		reuse: action.reuse,
 	});

@@ -18,6 +18,7 @@ const config: Config = {
 	agentGraceSeconds: 20,
 	agentTokenHashes: [],
 	reuseSeconds: 0,
+	swapGb: 0,
 	publicUrl: '',
 };
 const withAgents: Config = { ...config, agentTokenHashes: ['hash'] };

@@ -28,6 +28,7 @@ export interface Env {
 	ALLOW_PUBLIC_REPOS: string;
 	AGENT_GRACE_SECONDS: string;
 	REUSE_SECONDS?: string;
+	SWAP_GB?: string;
 	/** This Worker's own URL, which reused servers ask for their next job (needed with REUSE_SECONDS). */
 	PUBLIC_URL?: string;
 }
@@ -71,6 +72,8 @@ export interface Config {
 	reuseSeconds: number;
 	/** This Worker's URL, for reused servers. */
 	publicUrl: string;
+	/** A swap file of this many GB on every server, so a memory peak slows a job down instead of killing it. */
+	swapGb: number;
 }
 
 function int(name: string, value: string): number {
@@ -111,6 +114,7 @@ export function readConfig(env: Env): Config {
 		allowPublicRepos: env.ALLOW_PUBLIC_REPOS === 'true',
 		agentGraceSeconds: Math.min(25, int('AGENT_GRACE_SECONDS', env.AGENT_GRACE_SECONDS)),
 		reuseSeconds: int('REUSE_SECONDS', env.REUSE_SECONDS ?? '0'),
+		swapGb: int('SWAP_GB', env.SWAP_GB ?? '0'),
 		publicUrl: (env.PUBLIC_URL ?? '').replace(/\/$/, ''),
 		agentTokenHashes: (env.AGENT_TOKEN_SHA256 ?? '')
 			.split(',')

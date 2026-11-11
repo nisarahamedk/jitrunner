@@ -89,7 +89,7 @@ async function claim(free) {
 	const response = await fetch(`${url}/agent/claim`, {
 		method: 'POST',
 		headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-		body: JSON.stringify({ agent, labels, arch, slots: free }),
+		body: JSON.stringify({ agent, labels, arch, slots: free, capacity: slots }),
 	});
 	if (!response.ok) throw new Error(`claim: ${response.status} ${await response.text()}`);
 	return (await response.json()).claims;

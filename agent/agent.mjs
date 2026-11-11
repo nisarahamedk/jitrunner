@@ -12,8 +12,11 @@
 //   JITRUNNER_AGENT_TOKEN    this machine's agent token; install.sh makes it (required)
 //   JITRUNNER_AGENT_NAME     shown in logs (default: the host name)
 //   JITRUNNER_SLOTS          jobs at once (default 1)
-//   JITRUNNER_LABELS         labels this machine offers (default: self-hosted,Linux,<X64|ARM64>,jit). Never add
-//                            `ephemeral`: jobs asking for it need a machine that is wiped, and this one is not.
+//   JITRUNNER_LABELS         labels this machine offers (default: self-hosted,Linux,<X64|ARM64>,jit). Don't add
+//                            `ephemeral` here; use JITRUNNER_EPHEMERAL.
+//   JITRUNNER_EPHEMERAL      on: also take jobs asking for `ephemeral` (e.g. production deploys). They run in a
+//                            container with none of the shared cache volumes, so nothing an earlier job left in a
+//                            cache reaches them. The Docker host and its images are still shared with other jobs.
 //   JITRUNNER_IMAGE          the job container image (default jitrunner-runner)
 //   JITRUNNER_DOCKER_ARGS    extra `docker run` arguments, e.g. "--cpus 2 --memory 6g"
 //   JITRUNNER_CACHE          off: no shared caches. By default every job container mounts three volumes that outlive
@@ -54,10 +57,12 @@ const cacheMounts =
 				['jitrunner-pnpm', '/home/runner/.local/share/pnpm'],
 			].flatMap(([volume, path]) => ['--volume', `${volume}:${path}`]);
 
-if (labels.some((label) => label.toLowerCase() === 'ephemeral')) {
-	console.error('Refusing to offer the "ephemeral" label: this machine is not wiped between jobs.');
+const isEphemeral = (label) => label.toLowerCase() === 'ephemeral';
+if (labels.some(isEphemeral)) {
+	console.error('Set JITRUNNER_EPHEMERAL=on instead of adding "ephemeral" to JITRUNNER_LABELS.');
 	process.exit(1);
 }
+if (env.JITRUNNER_EPHEMERAL === 'on') labels.push('ephemeral');
 
 const log = (message) => console.log(`${new Date().toISOString()} ${message}`);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -87,7 +92,8 @@ async function claim(free) {
 	return (await response.json()).claims;
 }
 
-async function start({ runner, jitConfig, repo, jobId }) {
+async function start({ runner, jitConfig, repo, jobId, labels: jobLabels }) {
+	const fresh = jobLabels.some(isEphemeral);
 	// `-e JIT_CONFIG` with no value copies it from this process's environment, so it never shows in `ps`.
 	await run(
 		'docker',
@@ -108,13 +114,13 @@ async function start({ runner, jitConfig, repo, jobId }) {
 			'JIT_CONFIG',
 			'--env',
 			`JITRUNNER_IDLE_SECONDS=${idleSeconds}`,
-			...cacheMounts,
+			...(fresh ? [] : cacheMounts),
 			...dockerArgs,
 			image,
 		],
 		{ env: { ...process.env, JIT_CONFIG: jitConfig } },
 	);
-	log(`started ${runner} for job ${jobId} in ${repo}`);
+	log(`started ${runner} for job ${jobId} in ${repo}${fresh ? ' (no shared caches)' : ''}`);
 }
 
 log(`agent ${agent}: ${slots} slot(s), labels ${labels.join(',')}, image ${image}, polling ${url}`);

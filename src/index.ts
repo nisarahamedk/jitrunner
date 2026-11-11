@@ -134,6 +134,8 @@ interface ClaimRequest {
 interface Claim {
 	runner: string;
 	jitConfig: string;
+	/** The job's labels, so the agent can run `ephemeral` jobs without shared caches. */
+	labels: string[];
 	repo: string;
 	jobId: number;
 }
@@ -193,7 +195,7 @@ async function claim(env: Env, request: ClaimRequest): Promise<Claim[]> {
 			const runner = agentRunnerName(config, job.id);
 			try {
 				const jitConfig = await installation.jitConfig(repo, runner, runnerLabels(job.labels, request.arch));
-				claims.push({ runner, jitConfig, repo: `${repo.owner}/${repo.name}`, jobId: job.id });
+				claims.push({ runner, jitConfig, repo: `${repo.owner}/${repo.name}`, jobId: job.id, labels: job.labels });
 				console.log(`agent ${request.agent} claimed job ${job.id} in ${repo.owner}/${repo.name}`);
 			} catch (error) {
 				// 409: another agent claimed it a moment ago.

@@ -33,7 +33,7 @@ jobs:
   test:
     runs-on: [self-hosted, jit] # your machines with the `jit` label, else a fresh server
   deploy:
-    runs-on: [self-hosted, jit, ephemeral] # fresh server only: don't give your machines the `ephemeral` label
+    runs-on: [self-hosted, jit, ephemeral] # fresh server, or an agent with JITRUNNER_EPHEMERAL=on
 ```
 
 A JIT server's runner registers with exactly the labels the job asked for, plus `self-hosted`, `Linux` and `X64`
@@ -114,8 +114,11 @@ The job container has passwordless `sudo`, so steps like `sudo apt-get install` 
 `playwright install --with-deps` work. It also gets 2 GB of shared memory for browsers. Jobs that need Docker
 themselves (service containers, `docker build`) are not supported in the container.
 
-Agents never offer the `ephemeral` label. The machine is not wiped between jobs, and a container shares its kernel,
-so jobs holding production credentials stay on `[self-hosted, jit, ephemeral]`, which always means a fresh server.
+By default agents don't offer the `ephemeral` label, so jobs on `[self-hosted, jit, ephemeral]` (say, ones holding
+production credentials) get a fresh server. `JITRUNNER_EPHEMERAL=on` lets an agent take them too, in a container with
+none of the shared cache volumes, so nothing an earlier job left in a cache reaches them. The machine itself is not
+wiped, and the container shares its kernel and Docker images with other jobs: turn it on only for a machine whose
+other jobs you trust about as much.
 
 Any ordinary
 [self-hosted runner](https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/adding-self-hosted-runners)

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type JobRecord, runnerHost, statsPage, summarize } from '../src/stats.ts';
+import { type JobRecord, machinesNow, runnerHost, serverReason, statsPage, summarize, today } from '../src/stats.ts';
 
 const at = (iso: string): number => Date.parse(iso);
 
@@ -83,8 +83,75 @@ describe('statsPage running now', () => {
 		const html = statsPage([], 'UTC', undefined, {
 			servers: [{ name: 'jit-5', status: 'running', ageMinutes: 12, reuse: true }],
 			runners: [{ name: 'agent-jit-11', where: 'agent-mac', state: 'busy' }],
+			machines: [],
 		});
 		expect(html).toContain('<td>agent-mac</td><td>busy</td>');
 		expect(html).toContain('<td>jit-5 (reuse)</td><td>running</td><td>12 min</td>');
+	});
+});
+
+describe('serverReason', () => {
+	const now = at('2026-11-11T12:00:00Z');
+	const mac = { name: 'agent-mac', seen: now - 60_000, labels: ['self-hosted', 'Linux', 'ARM64', 'jit'], capacity: 4 };
+	it('says offline when no machine polled lately', () => {
+		expect(serverReason(['self-hosted', 'jit'], [{ ...mac, seen: now - 3_600_000 }], now)).toBe('offline');
+		expect(serverReason(['self-hosted', 'jit'], [], now)).toBe('offline');
+	});
+	it('says labels when no online machine has every label the job needs', () => {
+		expect(serverReason(['self-hosted', 'jit', 'ephemeral'], [mac], now)).toBe('labels');
+	});
+	it('says busy when a fitting machine was online, ignoring the architecture', () => {
+		expect(serverReason(['self-hosted', 'X64', 'jit'], [mac], now)).toBe('busy');
+	});
+});
+
+describe('today', () => {
+	it('splits today by hour and counts why new servers were needed', () => {
+		const records: JobRecord[] = [
+			{ job: 1, at: at('2026-11-11T09:10:00Z'), kind: 'agent', by: 'agent-mac' },
+			{ job: 2, at: at('2026-11-11T09:20:00Z'), kind: 'server', by: 'cx23', reason: 'busy' },
+			{ job: 3, at: at('2026-11-11T10:05:00Z'), kind: 'reused', by: 'jit-2' },
+			{ job: 4, at: at('2026-11-11T10:06:00Z'), kind: 'server', by: 'cx23' },
+			{ job: 5, at: at('2026-11-10T10:06:00Z'), kind: 'agent', by: 'agent-mac' },
+		];
+		const day = today(records, 'UTC', at('2026-11-11T12:00:00Z'));
+		expect(day.total).toBe(4);
+		expect(day.mine).toBe(1);
+		expect(day.hours).toEqual([
+			{ hour: '10:00', mine: 0, reused: 1, servers: 1 },
+			{ hour: '09:00', mine: 1, reused: 0, servers: 1 },
+		]);
+		expect([...day.reasons]).toEqual([
+			['busy', 1],
+			['unknown', 1],
+		]);
+		const html = statsPage([], 'UTC', undefined, undefined, day);
+		expect(html).toContain('1 of 4 jobs ran on your machines (25%)');
+		expect(html).toContain('<td>Machines full or slow to claim</td><td>1</td>');
+	});
+});
+
+describe('machinesNow', () => {
+	it('counts busy runners per machine against its slots', () => {
+		const now = at('2026-11-11T12:00:00Z');
+		const machines = machinesNow(
+			[
+				{ name: 'agent-old', seen: now - 2 * 3_600_000, labels: [] },
+				{ name: 'agent-mac', seen: now - 60_000, labels: [], capacity: 4 },
+			],
+			[
+				{ name: 'agent-jit-1', where: 'agent-mac', state: 'busy' },
+				{ name: 'agent-jit-2', where: 'agent-mac', state: 'busy' },
+				{ name: 'agent-jit-3', where: 'agent-mac', state: 'idle' },
+			],
+			now,
+		);
+		expect(machines).toEqual([
+			{ name: 'agent-mac', online: true, seenMinutes: 1, running: 2, capacity: 4 },
+			{ name: 'agent-old', online: false, seenMinutes: 120, running: 0, capacity: undefined },
+		]);
+		const html = statsPage([], 'UTC', undefined, { machines, servers: [], runners: [] });
+		expect(html).toContain('<td>agent-mac</td><td>online</td><td>2 of 4</td>');
+		expect(html).toContain('<td>agent-old</td><td>offline (seen 2 h ago)</td><td>0 of ?</td>');
 	});
 });

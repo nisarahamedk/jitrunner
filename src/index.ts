@@ -8,7 +8,20 @@ import { readConfig, type Config, type Env } from './config.ts';
 import { bootScript, type Reuse } from './cloud-init.ts';
 import { GitHubError, Installation, type Repo, safeEqual, verifyWebhook } from './github.ts';
 import { Hetzner } from './hetzner.ts';
-import { type JobRecord, loadJobs, type Now, recordJob, runnerHost, statsPage, summarize } from './stats.ts';
+import {
+	type JobRecord,
+	listAgents,
+	loadJobs,
+	machinesNow,
+	type Now,
+	noteAgent,
+	recordJob,
+	runnerHost,
+	serverReason,
+	statsPage,
+	summarize,
+	today,
+} from './stats.ts';
 import {
 	agentRunnerName,
 	archOf,
@@ -75,7 +88,14 @@ async function create(
 		`${result === 'exists' ? 'exists' : `created in ${result.created}`} ${action.name} for job ${action.jobId} in ${repo.owner}/${repo.name}`,
 	);
 	if (result !== 'exists') {
-		await recordJob(env.AGENTS, { job: action.jobId, at: Date.now(), kind: 'server', by: action.serverType });
+		const agents = env.AGENTS ? await listAgents(env.AGENTS) : [];
+		await recordJob(env.AGENTS, {
+			job: action.jobId,
+			at: Date.now(),
+			kind: 'server',
+			by: action.serverType,
+			reason: serverReason(action.labels, agents, Date.now()),
+		});
 	}
 }
 
@@ -132,7 +152,10 @@ interface ClaimRequest {
 	agent: string;
 	labels: string[];
 	arch: 'X64' | 'ARM64';
+	/** Free slots right now. */
 	slots: number;
+	/** All its slots; agents older than this field leave it out. */
+	capacity?: number;
 }
 
 interface Claim {
@@ -208,6 +231,15 @@ async function repoDockerfile(installation: Installation, repo: Repo): Promise<s
 async function claim(env: Env, request: ClaimRequest, images: boolean): Promise<Claim[]> {
 	const config = readConfig(env);
 	await markAlive(env, request.agent);
+	// Your machines only: reused servers come and go, and the stats page lists them as servers.
+	if (images) {
+		await noteAgent(env.AGENTS, {
+			name: request.agent,
+			seen: Date.now(),
+			labels: request.labels,
+			capacity: request.capacity,
+		});
+	}
 	const claims: Claim[] = [];
 	for (const { installation, repo } of await installedRepos(env, config)) {
 		const jobs = await installation.queuedJobs(repo);
@@ -333,7 +365,9 @@ async function runningNow(env: Env, config: Config, records: JobRecord[]): Promi
 			});
 		}
 	}
+	const agents = env.AGENTS ? await listAgents(env.AGENTS) : [];
 	return {
+		machines: machinesNow(agents, runners, Date.now()),
 		servers: servers.map((server) => ({
 			name: server.name,
 			status: server.status ?? 'unknown',
@@ -359,7 +393,8 @@ async function stats(env: Env): Promise<Response> {
 		console.error('stats: reading what is running failed', error);
 		return undefined;
 	});
-	return new Response(statsPage(rows, config.statsTimeZone, prices, now), {
+	const day = today(records, config.statsTimeZone);
+	return new Response(statsPage(rows, config.statsTimeZone, prices, now, day), {
 		headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
 	});
 }

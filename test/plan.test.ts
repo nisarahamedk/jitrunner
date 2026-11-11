@@ -19,6 +19,7 @@ const config: Config = {
 	agentTokenHashes: [],
 	reuseSeconds: 0,
 	swapGb: 0,
+	statsTimeZone: 'UTC',
 	publicUrl: '',
 };
 const withAgents: Config = { ...config, agentTokenHashes: ['hash'] };

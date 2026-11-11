@@ -8,6 +8,7 @@ import { readConfig, type Config, type Env } from './config.ts';
 import { bootScript, type Reuse } from './cloud-init.ts';
 import { GitHubError, Installation, type Repo, safeEqual, verifyWebhook } from './github.ts';
 import { Hetzner } from './hetzner.ts';
+import { loadJobs, recordJob, statsPage, summarize } from './stats.ts';
 import {
 	agentRunnerName,
 	archOf,
@@ -73,6 +74,9 @@ async function create(
 	console.log(
 		`${result === 'exists' ? 'exists' : `created in ${result.created}`} ${action.name} for job ${action.jobId} in ${repo.owner}/${repo.name}`,
 	);
+	if (result !== 'exists') {
+		await recordJob(env.AGENTS, action.jobId, { at: Date.now(), kind: 'server', by: action.serverType });
+	}
 }
 
 async function onWebhook(env: Env, event: WorkflowJobEvent): Promise<void> {
@@ -224,6 +228,8 @@ async function claim(env: Env, request: ClaimRequest, images: boolean): Promise<
 					dockerfile,
 				});
 				console.log(`agent ${request.agent} claimed job ${job.id} in ${repo.owner}/${repo.name}`);
+				// Reused servers are the claims that get no image (`images`); everything else is one of your machines.
+				await recordJob(env.AGENTS, job.id, { at: Date.now(), kind: images ? 'agent' : 'reused', by: request.agent });
 			} catch (error) {
 				// 409: another agent claimed it a moment ago.
 				if (!(error instanceof GitHubError && error.status === 409)) throw error;
@@ -309,6 +315,21 @@ async function claimingServer(env: Env, config: Config, authorization: string): 
 	return safeEqual(match[2]!, await serverToken(env, match[1]!)) ? match[1] : undefined;
 }
 
+/** A page of jobs per day by who ran them, and what the new servers cost. It shows no repo or job names. */
+async function stats(env: Env): Promise<Response> {
+	if (!env.AGENTS)
+		return new Response('Stats need the AGENTS KV namespace bound in wrangler.jsonc.\n', { status: 404 });
+	const config = readConfig(env);
+	const days = 14;
+	const prices = await new Hetzner(env.HCLOUD_TOKEN, config.prefix)
+		.prices(config.locations[0] ?? 'fsn1')
+		.catch(() => undefined);
+	const rows = summarize(await loadJobs(env.AGENTS, days), config.statsTimeZone, days);
+	return new Response(statsPage(rows, config.statsTimeZone, prices), {
+		headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+	});
+}
+
 async function agentClaim(request: Request, env: Env): Promise<Response> {
 	const config = readConfig(env);
 	const authorization = request.headers.get('Authorization') ?? '';
@@ -344,6 +365,7 @@ export default {
 	async fetch(request, env, ctx): Promise<Response> {
 		const url = new URL(request.url);
 		if (url.pathname === '/agent/claim') return agentClaim(request, env);
+		if (url.pathname === '/stats') return stats(env);
 		if (url.pathname !== '/webhook') return new Response('jitrunner\n');
 		if (request.method !== 'POST') return new Response('Method not allowed\n', { status: 405 });
 		const body = await request.text();

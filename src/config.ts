@@ -26,6 +26,8 @@ export interface Env {
 	IDLE_SECONDS: string;
 	MAX_AGE_SECONDS: string;
 	ALLOW_PUBLIC_REPOS: string;
+	/** The time zone /stats counts days in, e.g. America/Vancouver (default UTC). */
+	STATS_TIME_ZONE?: string;
 	AGENT_GRACE_SECONDS: string;
 	REUSE_SECONDS?: string;
 	SWAP_GB?: string;
@@ -74,6 +76,7 @@ export interface Config {
 	publicUrl: string;
 	/** A swap file of this many GB on every server, so a memory peak slows a job down instead of killing it. */
 	swapGb: number;
+	statsTimeZone: string;
 }
 
 function int(name: string, value: string): number {
@@ -115,6 +118,7 @@ export function readConfig(env: Env): Config {
 		agentGraceSeconds: Math.min(25, int('AGENT_GRACE_SECONDS', env.AGENT_GRACE_SECONDS)),
 		reuseSeconds: int('REUSE_SECONDS', env.REUSE_SECONDS ?? '0'),
 		swapGb: int('SWAP_GB', env.SWAP_GB ?? '0'),
+		statsTimeZone: env.STATS_TIME_ZONE || 'UTC',
 		publicUrl: (env.PUBLIC_URL ?? '').replace(/\/$/, ''),
 		agentTokenHashes: (env.AGENT_TOKEN_SHA256 ?? '')
 			.split(',')

@@ -139,6 +139,7 @@ describe('machinesNow', () => {
 			[
 				{ name: 'agent-old', seen: now - 2 * 3_600_000, labels: [] },
 				{ name: 'agent-mac', seen: now - 60_000, labels: [], capacity: 4 },
+				{ name: 'agent-gone', seen: now - 2 * 86_400_000, labels: [] },
 			],
 			[
 				{ name: 'agent-jit-1', where: 'agent-mac', state: 'busy' },

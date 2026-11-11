@@ -96,18 +96,23 @@ or switched-off agent stops asking for work, and jobs stop waiting for it within
    pnpm wrangler kv namespace create jitrunner-agents
    ```
    Add it to `wrangler.jsonc` as `"kv_namespaces": [{ "binding": "AGENTS", "id": "<its id>" }]` and deploy again.
-2. On the machine (Ubuntu, Debian or Mint):
+2. On the machine, the same installer for Linux (Ubuntu, Debian or Mint) and macOS:
    ```sh
    curl -fsSLO https://raw.githubusercontent.com/nisarahamedk/jitrunner/main/agent/install.sh
-   sudo JITRUNNER_URL=https://jitrunner.<you>.workers.dev bash install.sh
+   sudo JITRUNNER_URL=https://jitrunner.<you>.workers.dev bash install.sh   # Linux
+   JITRUNNER_URL=https://jitrunner.<you>.workers.dev bash install.sh        # macOS, as the agent's user, no sudo
    ```
-   It makes the machine's own agent token, keeps it there (root only), and prints the token's SHA-256.
+   It makes the machine's own agent token, keeps it there (readable by its owner only), runs a self-test and prints
+   the token's SHA-256. On macOS it needs Homebrew, installs OrbStack for Docker, runs the agent as a launchd agent
+   while that user is logged in, and keeps the Mac awake on power. `JITRUNNER_DOCKERFILE=path/to/Dockerfile` builds
+   your project's image (`FROM jitrunner-runner`) and uses it for every job; `JITRUNNER_NO_SUSPEND=1` stops a Linux
+   laptop from suspending, lid closed included.
 3. Give the Worker that hash. With several machines, list one hash per machine, comma separated, so you can drop one
    without touching the others:
    ```sh
    echo <hash>[,<hash>...] | pnpm wrangler secret put AGENT_TOKEN_SHA256
    ```
-   This installs Docker, builds the job image and starts the `jitrunner-agent` service. `JITRUNNER_SLOTS=2` runs two
+   This installs Docker, builds the job image and starts the agent (the `jitrunner-agent` service on Linux). `JITRUNNER_SLOTS=2` runs two
    jobs at once.
 
 The job container has passwordless `sudo`, so steps like `sudo apt-get install` and

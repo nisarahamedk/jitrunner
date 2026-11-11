@@ -189,6 +189,14 @@ Vars in `wrangler.jsonc`:
 | `MAX_AGE_SECONDS`      | `21600`          | Every server is deleted at this age, busy or not (GitHub's own job limit is 6 h)                                                                                                                                                                                   |
 | `AGENT_GRACE_SECONDS`  | `20`             | While an agent is up, how long a job waits for it (at most 25)                                                                                                                                                                                                     |
 | `ALLOW_PUBLIC_REPOS`   | `false`          | Leave off unless you know what fork pull requests can do on self-hosted runners                                                                                                                                                                                    |
+| `STATS_TIME_ZONE`      | `UTC`            | The time zone `/stats` counts days in, e.g. `America/Vancouver`                                                                                                                                                                                                    |
+
+## Stats
+
+`https://jitrunner.<you>.workers.dev/stats` shows the last 14 days: jobs per day on each of your machines, on reused
+servers and on new servers, and what the new servers cost at Hetzner's current prices (only they cost anything; each
+is billed at least an hour). It needs the `AGENTS` KV namespace, keeps one small key per job for 90 days, and shows
+no repo or job names.
 
 ## Security notes
 

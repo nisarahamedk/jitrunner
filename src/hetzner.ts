@@ -51,6 +51,27 @@ export class Hetzner {
 		return `jitrunner=${this.prefix}`;
 	}
 
+	/** What a new server costs in `location`, per started hour: its type's price plus a primary IPv4. */
+	async prices(location: string): Promise<{ currency: string; perServer: Map<string, number> }> {
+		type Hourly = { location: string; price_hourly: { gross: string } };
+		const { pricing } = await this.call<{
+			pricing: {
+				currency: string;
+				server_types: { name: string; prices: Hourly[] }[];
+				primary_ips: { type: string; prices: Hourly[] }[];
+			};
+		}>('GET', '/pricing');
+		const at = (prices: Hourly[]): number =>
+			Number(prices.find((price) => price.location === location)?.price_hourly.gross ?? Number.NaN);
+		const ipv4 = at(pricing.primary_ips.find((ip) => ip.type === 'ipv4')?.prices ?? []);
+		const perServer = new Map<string, number>();
+		for (const type of pricing.server_types) {
+			const price = at(type.prices) + ipv4;
+			if (Number.isFinite(price)) perServer.set(type.name, price);
+		}
+		return { currency: pricing.currency, perServer };
+	}
+
 	async servers(): Promise<Server[]> {
 		const servers: Server[] = [];
 		for (let page = 1; ; page += 1) {

@@ -167,6 +167,11 @@ install_macos() {
 </dict></plist>
 PLIST
 	launchctl bootout "gui/$(id -u)/dev.jitrunner.agent" 2>/dev/null || true
+	# bootout returns before the old agent is gone, and bootstrap fails ("5: Input/output error") until it is.
+	for _ in $(seq 40); do
+		launchctl print "gui/$(id -u)/dev.jitrunner.agent" >/dev/null 2>&1 || break
+		sleep 0.5
+	done
 	launchctl bootstrap "gui/$(id -u)" "$plist"
 	echo "jitrunner agent running. Logs: tail -f $dir/agent.log"
 	print_hash "$dir/agent.env"

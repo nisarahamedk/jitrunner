@@ -85,8 +85,8 @@ describe('statsPage running now', () => {
 			runners: [{ name: 'agent-jit-11', where: 'agent-mac', state: 'busy' }],
 			machines: [],
 		});
-		expect(html).toContain('<td>agent-mac</td><td>busy</td>');
-		expect(html).toContain('<td>jit-5 (reuse)</td><td>running</td><td>12 min</td>');
+		expect(html).toContain('<td>agent-mac</td><td><span class="mine">busy</span></td>');
+		expect(html).toContain('<td>jit-5 (reuse)</td><td><span class="new">running</span></td><td>12 min</td>');
 	});
 });
 
@@ -127,7 +127,7 @@ describe('today', () => {
 		]);
 		const html = statsPage([], 'UTC', undefined, undefined, day);
 		expect(html).toContain('1 of 4 jobs ran on your machines (25%)');
-		expect(html).toContain('<td>Machines full or slow to claim</td><td>1</td>');
+		expect(html).toContain('<td>Machines full or slow to claim</td><td><span class="new">1</span></td>');
 	});
 });
 
@@ -151,7 +151,9 @@ describe('machinesNow', () => {
 			{ name: 'agent-old', online: false, seenMinutes: 120, running: 0, capacity: undefined },
 		]);
 		const html = statsPage([], 'UTC', undefined, { machines, servers: [], runners: [] });
-		expect(html).toContain('<td>agent-mac</td><td>online</td><td>2 of 4</td>');
-		expect(html).toContain('<td>agent-old</td><td>offline (seen 2 h ago)</td><td>0 of ?</td>');
+		expect(html).toContain(
+			'<td>agent-mac</td><td><span class="mine">● online</span></td><td>2 of 4 <span class="bar slots">',
+		);
+		expect(html).toContain('<td>agent-old</td><td><span class="zero">○ seen 2 h ago</span></td><td>0 of ?</td>');
 	});
 });

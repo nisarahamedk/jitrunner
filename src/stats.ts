@@ -230,6 +230,21 @@ const ago = (minutes: number): string =>
 			? `${Math.round(minutes / 60)} h ago`
 			: `${Math.round(minutes / 1440)} days ago`;
 
+/** Colours by who ran a job: green your machines, blue reused servers, orange new (paid) servers. */
+const paint = (html: string, kind: string): string => `<span class="${kind}">${html}</span>`;
+/** A count in its colour, zero greyed out. */
+const count = (n: number, kind: string): string => paint(String(n), n ? kind : 'zero');
+/** A thin bar split by who ran the jobs, `scale` jobs wide. */
+const bar = (mine: number, reused: number, servers: number, scale: number): string =>
+	`<span class="bar">${[
+		[mine, 'mine'],
+		[reused, 'reused'],
+		[servers, 'new'],
+	]
+		.filter(([n]) => n)
+		.map(([n, kind]) => `<i class="${kind}" style="width:${((100 * (n as number)) / scale).toFixed(1)}%"></i>`)
+		.join('')}</span>`;
+
 const escape = (text: string): string => text.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
 
 export function statsPage(
@@ -252,16 +267,15 @@ export function statsPage(
 	};
 	const money = (amount: number | undefined): string =>
 		amount === undefined ? '?' : `${amount.toFixed(2)} ${escape(prices?.currency ?? '')}`;
-	const serverCell = (row: DayStats): string =>
-		String([...row.servers.values()].reduce((sum, count) => sum + count, 0));
+	const serverTotal = (row: DayStats): number => [...row.servers.values()].reduce((sum, n) => sum + n, 0);
 	const head = ['Day', ...machines.map(escape), 'Reused', 'New', 'Total', 'Cost'];
 	// Today always shows; earlier days only when something ran.
 	const shown = rows.filter((row, index) => index === 0 || row.total > 0);
 	const body = shown.map((row) => [
 		new Date(`${row.day}T12:00:00Z`).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' }),
-		...machines.map((machine) => String(row.machines.get(machine) ?? 0)),
-		String(row.reused),
-		serverCell(row),
+		...machines.map((machine) => count(row.machines.get(machine) ?? 0, 'mine')),
+		count(row.reused, 'reused'),
+		count(serverTotal(row), 'new'),
 		String(row.total),
 		money(cost(row)),
 	]);
@@ -277,8 +291,10 @@ ${
 		? table(
 				now.machines.map((machine) => [
 					escape(machine.name),
-					machine.online ? 'online' : `offline (seen ${ago(machine.seenMinutes)})`,
-					`${machine.running} of ${machine.capacity ?? '?'}`,
+					machine.online ? paint('● online', 'mine') : paint(`○ seen ${ago(machine.seenMinutes)}`, 'zero'),
+					`${machine.running} of ${machine.capacity ?? '?'}${
+						machine.capacity ? ` ${bar(machine.running, 0, 0, machine.capacity).replace('bar', 'bar slots')}` : ''
+					}`,
 				]),
 				'td',
 			)
@@ -290,11 +306,22 @@ ${
 		: `<h2>Today</h2>
 <p>${day.mine} of ${day.total} jobs ran on your machines${day.total ? ` (${Math.round((100 * day.mine) / day.total)}%)` : ''}.</p>
 ${
+	day.total
+		? `<div class="share">${bar(
+				day.mine,
+				day.hours.reduce((sum, row) => sum + row.reused, 0),
+				day.hours.reduce((sum, row) => sum + row.servers, 0),
+				day.total,
+			)}</div>
+<p class="legend">${paint('■', 'mine')} yours ${paint('■', 'reused')} reused server ${paint('■', 'new')} new server</p>`
+		: ''
+}
+${
 	day.reasons.size
 		? `<div class="wrap"><table>
 ${table([['Why a new server', 'Servers']], 'th')}
 ${table(
-	[...day.reasons].sort((a, b) => b[1] - a[1]).map(([reason, count]) => [REASON_TEXT[reason], String(count)]),
+	[...day.reasons].sort((a, b) => b[1] - a[1]).map(([reason, n]) => [REASON_TEXT[reason], count(n, 'new')]),
 	'td',
 )}
 </table></div>`
@@ -303,9 +330,15 @@ ${table(
 ${
 	day.hours.length
 		? `<div class="wrap"><table>
-${table([['Hour', 'Yours', 'Reused', 'New']], 'th')}
+${table([['Hour', 'Yours', 'Reused', 'New', '']], 'th')}
 ${table(
-	day.hours.map((row) => [row.hour, String(row.mine), String(row.reused), String(row.servers)]),
+	day.hours.map((row) => [
+		row.hour,
+		count(row.mine, 'mine'),
+		count(row.reused, 'reused'),
+		count(row.servers, 'new'),
+		bar(row.mine, row.reused, row.servers, Math.max(...day.hours.map((h) => h.mine + h.reused + h.servers))),
+	]),
 	'td',
 )}
 </table></div>`
@@ -320,7 +353,11 @@ ${table([['Runner', 'Where', 'State']], 'th')}
 ${
 	now.runners.length
 		? table(
-				now.runners.map((runner) => [escape(runner.name), escape(runner.where), runner.state]),
+				now.runners.map((runner) => [
+					escape(runner.name),
+					escape(runner.where),
+					paint(runner.state, runner.state === 'busy' ? 'mine' : runner.state === 'idle' ? 'zero' : 'new'),
+				]),
 				'td',
 			)
 		: '<tr><td colspan="3">No runners</td></tr>'
@@ -334,7 +371,7 @@ ${
 		? table(
 				now.servers.map((server) => [
 					escape(server.name) + (server.reuse ? ' (reuse)' : ''),
-					escape(server.status),
+					paint(escape(server.status), server.status === 'running' ? 'new' : 'zero'),
 					`${server.ageMinutes} min`,
 				]),
 				'td',
@@ -350,8 +387,18 @@ ${
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>jitrunner stats</title>
 <style>
-	:root { color-scheme: light dark; --fg: #1a1a1a; --bg: #fff; --line: #ddd; --muted: #666; }
-	@media (prefers-color-scheme: dark) { :root { --fg: #eee; --bg: #121212; --line: #333; --muted: #999; } }
+	:root { color-scheme: light dark; --fg: #1a1a1a; --bg: #fff; --line: #ddd; --muted: #666; --track: #eee;
+		--mine: #1a7f37; --reused: #0969da; --new: #c4540c; }
+	@media (prefers-color-scheme: dark) { :root { --fg: #eee; --bg: #121212; --line: #333; --muted: #999; --track: #262626;
+		--mine: #3fb950; --reused: #58a6ff; --new: #f0883e; } }
+	.mine { color: var(--mine); } .reused { color: var(--reused); } .new { color: var(--new); } .zero { color: var(--muted); }
+	.bar { display: inline-flex; width: 80px; height: 8px; border-radius: 4px; overflow: hidden; background: var(--track); vertical-align: middle; }
+	.bar i { display: block; height: 100%; }
+	td .bar.slots { width: 48px; }
+	.bar .mine { background: var(--mine); } .bar .reused { background: var(--reused); } .bar .new { background: var(--new); }
+	.share .bar { width: 100%; max-width: 420px; height: 12px; border-radius: 6px; }
+	.share { margin: -8px 0 6px; }
+	p.legend { font-size: 12px; }
 	body { margin: 0; padding: 16px; font: 14px/1.4 system-ui, sans-serif; color: var(--fg); background: var(--bg); }
 	h1 { font-size: 20px; margin: 0 0 4px; }
 	h2 { font-size: 16px; margin: 20px 0 8px; }

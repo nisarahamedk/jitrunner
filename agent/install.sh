@@ -7,7 +7,7 @@
 # On macOS run it as the user the agent should run as, without sudo: the agent runs while that user is logged in.
 # It makes this machine's agent token, keeps it on the machine (readable by its owner only) and prints the token's
 # SHA-256 for the Worker's AGENT_TOKEN_SHA256, so the token itself never leaves the machine. Run it again to update; it
-# keeps the token. It ends with a self-test: a job container must be able to write its work folder and the caches.
+# keeps the token and every setting you don't give again. It ends with a self-test: a job container must be able to write its work folder and the caches.
 #
 # Optional:
 #   JITRUNNER_NO_SUSPEND=1   Linux: never suspend, lid closed included (for laptops; applies after a reboot).
@@ -18,6 +18,20 @@
 #   JITRUNNER_EPHEMERAL, JITRUNNER_IDLE_SECONDS, JITRUNNER_MAX_JOB_SECONDS (see agent.mjs), and JITRUNNER_REPO / JITRUNNER_REF to install from a fork or branch.
 set -euo pipefail
 
+SETTINGS=(JITRUNNER_URL JITRUNNER_SLOTS JITRUNNER_AGENT_NAME JITRUNNER_LABELS JITRUNNER_DOCKER_ARGS JITRUNNER_CACHE
+	JITRUNNER_IMAGE JITRUNNER_POLL_SECONDS JITRUNNER_EPHEMERAL JITRUNNER_IDLE_SECONDS JITRUNNER_MAX_JOB_SECONDS)
+if [ "$(uname -s)" = Darwin ]; then env_file=$HOME/.jitrunner/agent.env; else env_file=/etc/jitrunner/agent.env; fi
+
+# A re-run keeps the settings of the last install: each one not given now (unset) comes from the agent's env file.
+# Give one as empty (JITRUNNER_SLOTS=) to drop it back to its default.
+if [ -r "$env_file" ]; then
+	for name in "${SETTINGS[@]}"; do
+		if [ -z "${!name+x}" ]; then
+			value=$(sed -n "s/^$name=//p" "$env_file" | sed 's/^"\(.*\)"$/\1/')
+			if [ -n "$value" ]; then export "$name=$value"; fi
+		fi
+	done
+fi
 : "${JITRUNNER_URL:?Set JITRUNNER_URL to your Worker}"
 repo=${JITRUNNER_REPO:-https://github.com/nisarahamedk/jitrunner}
 ref=${JITRUNNER_REF:-main}
@@ -59,10 +73,11 @@ write_env() {
 	(
 		umask 077
 		{
-			echo "JITRUNNER_URL=$JITRUNNER_URL"
+			echo "JITRUNNER_URL=\"$JITRUNNER_URL\""
 			echo "JITRUNNER_AGENT_TOKEN=$token"
-			for name in JITRUNNER_SLOTS JITRUNNER_AGENT_NAME JITRUNNER_LABELS JITRUNNER_DOCKER_ARGS JITRUNNER_CACHE JITRUNNER_IMAGE JITRUNNER_POLL_SECONDS JITRUNNER_EPHEMERAL JITRUNNER_IDLE_SECONDS JITRUNNER_MAX_JOB_SECONDS; do
-				if [ -n "${!name:-}" ]; then echo "$name=${!name}"; fi
+			for name in "${SETTINGS[@]:1}"; do
+				# Quoted: launchd's shell sources this file, and a value with spaces (DOCKER_ARGS) would run as a command.
+				if [ -n "${!name:-}" ]; then echo "$name=\"${!name}\""; fi
 			done
 		} > "$1"
 	)
@@ -71,6 +86,8 @@ write_env() {
 print_hash() {
 	local token
 	token=$(sed -n 's/^JITRUNNER_AGENT_TOKEN=//p' "$1")
+	echo "Settings ($1):"
+	grep -v '^JITRUNNER_AGENT_TOKEN=' "$1" | sed 's/^/  /'
 	echo "Add this machine's token hash to the Worker's AGENT_TOKEN_SHA256 (comma separated, one per machine):"
 	printf '  %s\n' "$(printf %s "$token" | { sha256sum 2>/dev/null || shasum -a 256; } | cut -d' ' -f1)"
 }

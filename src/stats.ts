@@ -175,15 +175,19 @@ export interface Machine {
 
 /** Your machines as the Worker knows them, with the busy runners each one hosts right now. */
 export function machinesNow(agents: AgentInfo[], runners: Now['runners'], now: number): Machine[] {
-	return agents
-		.map((agent) => ({
-			name: agent.name,
-			online: isOnline(agent, now),
-			seenMinutes: Math.round((now - agent.seen) / 60_000),
-			running: runners.filter((runner) => runner.where === agent.name && runner.state === 'busy').length,
-			capacity: agent.capacity,
-		}))
-		.sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name));
+	return (
+		agents
+			// A machine gone for a day is renamed or retired; its record stays in KV until it expires.
+			.filter((agent) => now - agent.seen < 86_400_000)
+			.map((agent) => ({
+				name: agent.name,
+				online: isOnline(agent, now),
+				seenMinutes: Math.round((now - agent.seen) / 60_000),
+				running: runners.filter((runner) => runner.where === agent.name && runner.state === 'busy').length,
+				capacity: agent.capacity,
+			}))
+			.sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name))
+	);
 }
 
 /** Today in detail: who ran jobs hour by hour, and why each new server was needed. */

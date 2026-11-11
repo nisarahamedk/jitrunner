@@ -21,6 +21,8 @@ cron, every minute ─► Worker: catch jobs still waiting, delete servers that 
 - **Every job gets a clean machine.** Each server runs one job with a
   [just-in-time runner](https://docs.github.com/en/rest/actions/self-hosted-runners#create-configuration-for-a-just-in-time-runner-for-a-repository)
   and is then destroyed. Nothing leaks from one job to the next, so jobs that hold deploy credentials can run here.
+  (With `REUSE_SECONDS`, plain jobs may share a server for its paid hour; jobs asking for more, like `ephemeral`,
+  never do.)
 - **Your own hardware is used first.** If a machine of yours with the right labels is online and idle, jitrunner
   waits `GRACE_SECONDS` for GitHub to give it the job before paying for a server.
 - **Nothing to babysit.** All state lives in Hetzner server labels and GitHub's runner list, so a lost webhook, a
@@ -103,17 +105,36 @@ or switched-off agent stops asking for work, and jobs stop waiting for it within
    sudo JITRUNNER_URL=https://jitrunner.<you>.workers.dev bash install.sh   # Linux
    JITRUNNER_URL=https://jitrunner.<you>.workers.dev bash install.sh        # macOS, as the agent's user, no sudo
    ```
-   It makes the machine's own agent token, keeps it there (readable by its owner only), runs a self-test and prints
-   the token's SHA-256. On macOS it needs Homebrew, installs OrbStack for Docker, runs the agent as a launchd agent
+   It installs Docker, builds the base job image, makes the machine's own agent token, keeps it there (readable by
+   its owner only), runs a self-test, starts the agent and prints the token's SHA-256. On Linux the agent is the
+   `jitrunner-agent` systemd service (`journalctl -u jitrunner-agent -f`). On macOS it needs Homebrew, installs OrbStack for Docker, runs the agent as a launchd agent
    while that user is logged in, and keeps the Mac awake on power. `JITRUNNER_NO_SUSPEND=1` stops a Linux laptop from
-   suspending, lid closed included. Nothing in it is specific to your repos.
+   suspending, lid closed included. Nothing in it is specific to your repos. Run it again, with the same settings, to
+   update the agent: it keeps the token, so the hash stays the same.
 3. Give the Worker that hash. With several machines, list one hash per machine, comma separated, so you can drop one
    without touching the others:
    ```sh
    echo <hash>[,<hash>...] | pnpm wrangler secret put AGENT_TOKEN_SHA256
    ```
-   This installs Docker, builds the job image and starts the agent (the `jitrunner-agent` service on Linux). `JITRUNNER_SLOTS=2` runs two
-   jobs at once.
+   Check the value really landed: the agent's log should stop showing `claim: 401 Unauthorized`.
+
+Agent settings, given to the installer as environment variables (it keeps them for the agent):
+
+| Setting                     | Default                              | Meaning                                                                                                      |
+| --------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| `JITRUNNER_URL`             | (required)                           | The Worker's URL                                                                                             |
+| `JITRUNNER_AGENT_NAME`      | the host name                        | Shown in the Worker's logs                                                                                   |
+| `JITRUNNER_SLOTS`           | `1`                                  | Jobs at once                                                                                                 |
+| `JITRUNNER_DOCKER_ARGS`     | (none)                               | Extra `docker run` arguments, e.g. `--cpus 6 --memory 12g`                                                   |
+| `JITRUNNER_EPHEMERAL`       | off                                  | `on`: also take `ephemeral` jobs, without shared caches (below)                                              |
+| `JITRUNNER_IMAGE`           | `jitrunner-runner`                   | Image for repos without their own `.jitrunner/Dockerfile`                                                    |
+| `JITRUNNER_CACHE`           | on                                   | Jobs share three volumes: tool versions (`_work/_tool`), `~/.cache` (browsers) and pnpm's store. `off`: none |
+| `JITRUNNER_LABELS`          | `self-hosted,Linux,<X64\|ARM64>,jit` | Labels this machine offers                                                                                   |
+| `JITRUNNER_POLL_SECONDS`    | `5`                                  | How often it asks for work                                                                                   |
+| `JITRUNNER_IDLE_SECONDS`    | `300`                                | A job container that got no job after this long exits                                                        |
+| `JITRUNNER_MAX_JOB_SECONDS` | `21600`                              | A job container is stopped at this age                                                                       |
+| `JITRUNNER_NO_SUSPEND`      | off                                  | Linux: `1` stops the machine from suspending, lid closed included                                            |
+| `JITRUNNER_UBUNTU_MIRROR`   | (none)                               | A faster Ubuntu mirror for the base image (x86 only)                                                         |
 
 The job container has passwordless `sudo`, so steps like `sudo apt-get install` and
 `playwright install --with-deps` work. It also gets 2 GB of shared memory for browsers. Jobs that need Docker
@@ -178,6 +199,11 @@ Vars in `wrangler.jsonc`:
 - On public repositories, anyone can open a pull request, and their workflow would run on your servers. That's why
   public repos are refused unless `ALLOW_PUBLIC_REPOS` is `true`.
 - The Worker only ever deletes Hetzner servers labeled `jitrunner=<NAME_PREFIX>`.
+- An agent's token stays on its machine; the Worker keeps only its SHA-256. Drop a machine by removing its hash.
+- Agents build a repo's `.jitrunner/Dockerfile` from its default branch only, so a pull request can't change what is
+  built on your machines. Jobs themselves run whatever the pull request contains, as on any runner.
+- Agent jobs share the machine's kernel, Docker images and (unless `ephemeral` or `JITRUNNER_CACHE=off`) cache
+  volumes. Give the `ephemeral` label to an agent only if you trust its other jobs about as much as your deploys.
 
 ## Costs, roughly
 
